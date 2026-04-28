@@ -1,4 +1,20 @@
 services:
+  api:
+    build: .
+    container_name: iot-api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      MONGO_URL: mongodb://mongo:27017
+      MONGO_DB: iot_solutions
+      SIMULATOR_INTERVAL: "5"
+      SIMULATOR_ENABLED: "1"
+      METRIC_RETENTION_DAYS: "30"
+      LOG_LEVEL: INFO
+    depends_on:
+      - mongo
+
   mongo:
     image: mongo:7
     container_name: iot-mongo
