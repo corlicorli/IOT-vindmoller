@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import re
 
 from dotenv import load_dotenv
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
@@ -10,6 +11,11 @@ load_dotenv()  # læser .env hvis filen findes
 
 MONGO_URL = os.getenv("MONGO_URL", "mongodb://localhost:27017")
 MONGO_DB = os.getenv("MONGO_DB", "iot_solutions")
+
+
+def redacted_url() -> str:
+    """MONGO_URL med password maskeret — sikker at logge / vise i fejl."""
+    return re.sub(r"://([^:/@]+):([^@]+)@", r"://\1:***@", MONGO_URL)
 
 _client: AsyncIOMotorClient | None = None
 

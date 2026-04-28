@@ -35,10 +35,10 @@ SIMULATOR_ENABLED = os.getenv("SIMULATOR_ENABLED", "1") != "0"
 async def lifespan(_: FastAPI):
     if not await db.ping():
         raise RuntimeError(
-            f"Kan ikke nå MongoDB på {db.MONGO_URL}. Start databasen først."
+            f"Kan ikke nå MongoDB på {db.redacted_url()}. Start databasen først."
         )
     await db.init_indexes()
-    logger.info("Forbundet til MongoDB %s (db=%s)", db.MONGO_URL, db.MONGO_DB)
+    logger.info("Forbundet til MongoDB %s (db=%s)", db.redacted_url(), db.MONGO_DB)
 
     task: asyncio.Task | None = None
     if SIMULATOR_ENABLED:
@@ -71,11 +71,11 @@ app = FastAPI(
 
 @app.get("/", tags=["meta"])
 async def root():
+    """Service-metadata. Eksponerer IKKE forbindelses-URL (kan indeholde credentials)."""
     return {
         "service": "Wind Farm API",
         "docs": "/docs",
         "alert_threshold_c": ALERT_TEMP_THRESHOLD_C,
-        "mongo": db.MONGO_URL,
         "db": db.MONGO_DB,
     }
 

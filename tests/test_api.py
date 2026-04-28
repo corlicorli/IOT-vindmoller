@@ -23,6 +23,15 @@ async def test_root_exposes_metadata(client):
     assert body["alert_threshold_c"] == 70.0
 
 
+async def test_root_does_not_leak_credentials(client):
+    """Regression: connection-URL må aldrig eksponeres via HTTP."""
+    r = await client.get("/")
+    body_raw = r.text
+    assert "mongodb://" not in body_raw
+    assert "mongodb+srv" not in body_raw
+    assert "mongo" not in r.json(), "mongo-feltet er fjernet for at undgå credential-lækage"
+
+
 async def test_post_metrics_normal_does_not_create_alert(client, seeded):
     r = await client.post(
         "/metrics",
