@@ -108,7 +108,10 @@ async def run(days: int, interval_min: int, append: bool) -> None:
             state = TickState(wind=rng.uniform(4.0, 10.0), temp_drift=0.0)
             for step in range(total_steps):
                 ts = start + timedelta(minutes=interval_min * step)
-                wind, power, rpm, temp = next_tick(state, sc, rng, ts.hour)
+                cumulative_days = (ts - start).total_seconds() / 86400.0
+                wind, power, rpm, temp = next_tick(
+                    state, sc, rng, ts.hour, cumulative_days
+                )
                 metrics_docs.append(
                     {
                         "device_id": device_id,

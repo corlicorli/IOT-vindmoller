@@ -62,3 +62,19 @@ class AlertEvent(BaseModel):
     severity: str
     event_type: str
     rule: str
+
+
+class Prediction(BaseModel):
+    """Lag 3 PdM: trend-baseret forudsigelse for én mølle."""
+
+    device_id: str
+    park_id: str
+    current_temp_c: float
+    baseline_mean_c: float
+    baseline_stddev_c: float
+    trend_c_per_day: float
+    days_until_breach: float | None
+    eta_threshold_breach: datetime | None
+    risk: str
+    datapoints: int
+    lookback_days: int

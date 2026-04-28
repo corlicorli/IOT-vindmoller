@@ -17,9 +17,18 @@ from fastapi import FastAPI, HTTPException, Query
 
 import alerts as alerts_service
 import db
+import predictions as predictions_service
 import simulator
 from alerts import ALERT_TEMP_THRESHOLD_C, WARN_SEVERITY_C
-from models import Alert, AlertEvent, DeviceStatus, Metric, MetricIn, Park
+from models import (
+    Alert,
+    AlertEvent,
+    DeviceStatus,
+    Metric,
+    MetricIn,
+    Park,
+    Prediction,
+)
 
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
@@ -254,6 +263,36 @@ async def alerts_history(
         .limit(limit)
     )
     return [a async for a in cursor]
+
+
+@app.get(
+    "/monitoring/predictions",
+    response_model=list[Prediction],
+    tags=["monitoring"],
+)
+async def all_predictions():
+    """PdM lag 3: trend-baseret forudsigelse pr. mølle, sorteret efter risiko (HIGH først)."""
+    return await predictions_service.predict_all()
+
+
+@app.get(
+    "/monitoring/predictions/{device_id}",
+    response_model=Prediction,
+    tags=["monitoring"],
+)
+async def device_prediction(device_id: str):
+    """PdM lag 3 for én mølle: lineær regression på sidste 7 dages temperatur."""
+    pred = await predictions_service.predict_for_device(device_id)
+    if pred is None:
+        raise HTTPException(
+            404,
+            (
+                f"Ikke nok data for {device_id} — kræver mindst "
+                f"{predictions_service.MIN_DATAPOINTS} målinger inden for "
+                f"{predictions_service.PREDICTION_LOOKBACK_DAYS} dage."
+            ),
+        )
+    return pred
 
 
 @app.get("/monitoring/park-summary", tags=["monitoring"])

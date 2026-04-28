@@ -31,18 +31,32 @@ class SimulatorStatus:
 status = SimulatorStatus()
 
 
-async def _load_states() -> list[tuple[str, str, TickState]]:
-    """Liste af (device_id, park_id, state) fra DB, i fast rækkefølge."""
-    out: list[tuple[str, str, TickState]] = []
+async def _load_states() -> list[tuple[str, str, datetime, TickState]]:
+    """Liste af (device_id, park_id, first_metric_ts, state) fra DB.
+
+    first_metric_ts bruges til at beregne 'cumulative_days' for hver mølle —
+    så drift fortsætter kontinuerligt henover simulator-restarts.
+    """
+    out: list[tuple[str, str, datetime, TickState]] = []
     cursor = db.devices().find({}, {"_id": 1, "park_id": 1}).sort("_id", 1)
     async for dev in cursor:
+        earliest = await db.metrics().find_one(
+            {"device_id": dev["_id"]},
+            sort=[("timestamp", 1)],
+            projection={"timestamp": 1},
+        )
         last = await db.metrics().find_one(
             {"device_id": dev["_id"]},
             sort=[("timestamp", -1)],
             projection={"wind_speed_ms": 1},
         )
         wind = last["wind_speed_ms"] if last else 8.0
-        out.append((dev["_id"], dev["park_id"], TickState(wind=wind, temp_drift=0.0)))
+        first_ts = earliest["timestamp"] if earliest else datetime.now(timezone.utc)
+        if first_ts.tzinfo is None:
+            first_ts = first_ts.replace(tzinfo=timezone.utc)
+        out.append(
+            (dev["_id"], dev["park_id"], first_ts, TickState(wind=wind, temp_drift=0.0))
+        )
     return out
 
 
@@ -66,9 +80,12 @@ async def run(interval_seconds: float = 5.0) -> None:
             hour = ts.hour
 
             docs = []
-            for idx, (device_id, park_id, state) in enumerate(states):
+            for idx, (device_id, park_id, first_ts, state) in enumerate(states):
                 sc = scenario_for(idx)
-                wind, power, rpm, temp = next_tick(state, sc, rng, hour)
+                cumulative_days = max(0.0, (ts - first_ts).total_seconds() / 86400.0)
+                wind, power, rpm, temp = next_tick(
+                    state, sc, rng, hour, cumulative_days
+                )
                 docs.append(
                     {
                         "device_id": device_id,

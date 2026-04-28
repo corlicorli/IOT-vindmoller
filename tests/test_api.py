@@ -130,3 +130,140 @@ async def test_post_metrics_validation_rejects_negative_wind(client, seeded):
         },
     )
     assert r.status_code == 422
+
+
+# --- Predictive maintenance (lag 3) -----------------------------------------
+
+
+async def test_predictions_empty_when_no_history(client, seeded):
+    """Med kun seed-fixture (ingen historik) er der ikke nok datapunkter."""
+    r = await client.get("/monitoring/predictions")
+    assert r.status_code == 200
+    assert r.json() == []
+
+
+async def test_predictions_unknown_device_returns_404(client, seeded):
+    r = await client.get("/monitoring/predictions/NOT-A-DEVICE")
+    assert r.status_code == 404
+
+
+async def test_predictions_detects_upward_trend(client, seeded):
+    """Indsæt syntetisk opadgående trend og verificer at vi forudsiger den."""
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    # 50 datapunkter spredt over 5 dage med ~1°C/dag opadgående trend
+    docs = []
+    for i in range(50):
+        days_ago = 5 - (i / 49) * 5  # 5.0 → 0.0
+        ts = now - timedelta(days=days_ago)
+        temp = 50.0 + (5.0 - days_ago) * 1.0  # 50°C → 55°C
+        docs.append(
+            {
+                "device_id": "IOT-DK-ALB-001",
+                "park_id": "PARK-ALB",
+                "timestamp": ts,
+                "wind_speed_ms": 8.0,
+                "power_output_kw": 1500.0,
+                "rotor_rpm": 12.0,
+                "gearbox_temp_c": temp,
+            }
+        )
+    await db.metrics().insert_many(docs)
+
+    r = await client.get("/monitoring/predictions/IOT-DK-ALB-001")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["device_id"] == "IOT-DK-ALB-001"
+    assert body["park_id"] == "PARK-ALB"
+    assert body["datapoints"] == 50
+    assert 0.5 < body["trend_c_per_day"] < 1.5  # forventet ~1.0
+    assert body["days_until_breach"] is not None
+    assert body["days_until_breach"] > 0
+    assert body["eta_threshold_breach"] is not None
+    assert body["risk"] in ("MEDIUM", "HIGH")
+
+
+async def test_predictions_stable_device_has_no_eta(client, seeded):
+    """En mølle uden trend bør ikke få days_until_breach."""
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    docs = [
+        {
+            "device_id": "IOT-DK-ALB-001",
+            "park_id": "PARK-ALB",
+            "timestamp": now - timedelta(hours=i),
+            "wind_speed_ms": 8.0,
+            "power_output_kw": 1500.0,
+            "rotor_rpm": 12.0,
+            "gearbox_temp_c": 55.0,  # konstant
+        }
+        for i in range(40)
+    ]
+    await db.metrics().insert_many(docs)
+
+    r = await client.get("/monitoring/predictions/IOT-DK-ALB-001")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["days_until_breach"] is None
+    assert body["eta_threshold_breach"] is None
+    assert body["risk"] == "LOW"
+
+
+async def test_predictions_list_sorts_high_risk_first(client, seeded):
+    """Indsæt to møller — én med stærk trend, én stabil. HIGH/MEDIUM skal komme før LOW."""
+    from datetime import datetime, timedelta, timezone
+
+    # Tilføj endnu en device til park
+    await db.devices().insert_one(
+        {
+            "_id": "IOT-DK-ALB-002",
+            "park_id": "PARK-ALB",
+            "wind_turbine_id": "WTG-ALB-002",
+            "firmware_version": "v2.4.1",
+            "battery_level": 90,
+            "signal_strength": -70,
+            "last_error_code": "00",
+            "last_ping": datetime.now(timezone.utc),
+        }
+    )
+
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    # Mølle 1: stærkt stigende
+    rising = [
+        {
+            "device_id": "IOT-DK-ALB-001",
+            "park_id": "PARK-ALB",
+            "timestamp": now - timedelta(hours=5 - i / 8),
+            "wind_speed_ms": 8.0,
+            "power_output_kw": 1500.0,
+            "rotor_rpm": 12.0,
+            "gearbox_temp_c": 50.0 + i * 0.3,  # ~7°C på 5 dage = ~1.4°C/dag
+        }
+        for i in range(40)
+    ]
+    # Mølle 2: stabil
+    stable = [
+        {
+            "device_id": "IOT-DK-ALB-002",
+            "park_id": "PARK-ALB",
+            "timestamp": now - timedelta(hours=5 - i / 8),
+            "wind_speed_ms": 8.0,
+            "power_output_kw": 1500.0,
+            "rotor_rpm": 12.0,
+            "gearbox_temp_c": 55.0,
+        }
+        for i in range(40)
+    ]
+    await db.metrics().insert_many(rising + stable)
+
+    r = await client.get("/monitoring/predictions")
+    assert r.status_code == 200
+    rows = r.json()
+    assert len(rows) == 2
+    # Stigende mølle skal stå først (højest risiko)
+    assert rows[0]["device_id"] == "IOT-DK-ALB-001"
+    assert rows[1]["device_id"] == "IOT-DK-ALB-002"
+    assert rows[0]["risk"] in ("MEDIUM", "HIGH")
+    assert rows[1]["risk"] == "LOW"

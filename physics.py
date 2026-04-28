@@ -17,17 +17,21 @@ FIRMWARES = ["v2.4.1", "v2.4.0", "v2.3.9"]
 @dataclass
 class Scenario:
     name: str
-    temp_offset: float
+    temp_offset: float        # statisk baseline-offset (°C)
     power_factor: float
     base_error: str
     battery_drain: float
+    temp_drift_per_day: float = 0.0  # lineær drift over tid (°C/dag) — driver PdM lag 3
 
 
 SCENARIOS = [
+    # Sundeste enheder — ingen drift
     Scenario("healthy",        0.0,  1.00, OK_ERROR, 0.02),
-    Scenario("overheat_drift", 18.0, 0.95, "E12",    0.04),
+    # "overheat_drift" simulerer accelerende gearkasse-fejl: +2°C pr. dag
+    Scenario("overheat_drift", 4.0,  0.95, "E12",    0.04, temp_drift_per_day=2.0),
     Scenario("low_power",     -2.0,  0.55, "W04",    0.06),
-    Scenario("aging",         12.0,  0.90, "W11",    0.08),
+    # "aging" simulerer langsom slidtage: +0.7°C pr. dag
+    Scenario("aging",          6.0,  0.90, "W11",    0.08, temp_drift_per_day=0.7),
     Scenario("flaky_sensor",   2.0,  1.00, "E07",    0.03),
 ]
 
@@ -57,7 +61,18 @@ class TickState:
     temp_drift: float
 
 
-def next_tick(state: TickState, scenario: Scenario, rng: random.Random, hour: int):
+def next_tick(
+    state: TickState,
+    scenario: Scenario,
+    rng: random.Random,
+    hour: int,
+    cumulative_days: float = 0.0,
+):
+    """Beregn næste sensor-måling for en mølle.
+
+    cumulative_days: hvor længe enheden har været i drift i dette scenarie.
+    Driver lineær temperatur-drift (°C/dag × dage) — fundamentet for PdM-trend-analyse.
+    """
     state.wind += rng.gauss(0, 0.6)
     state.wind = max(0.0, min(22.0, state.wind))
     state.wind += math.sin((hour - 3) / 24 * 2 * math.pi) * 0.05
@@ -68,11 +83,13 @@ def next_tick(state: TickState, scenario: Scenario, rng: random.Random, hour: in
 
     load_ratio = power / RATED_POWER_KW
     ambient = 18 + math.sin((hour - 14) / 24 * 2 * math.pi) * 6
+    long_term_drift = scenario.temp_drift_per_day * cumulative_days
     temp = (
         ambient
         + load_ratio * 45
         + scenario.temp_offset
-        + state.temp_drift
+        + long_term_drift          # lineær degradering over tid (PdM)
+        + state.temp_drift          # kortsigtet random walk (støj)
         + rng.gauss(0, 0.8)
     )
     state.temp_drift += rng.gauss(0, 0.02)
