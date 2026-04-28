@@ -5,12 +5,16 @@ Køres som baggrundstask fra FastAPI's lifespan (main.py).
 from __future__ import annotations
 
 import asyncio
+import logging
 import random
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
+import alerts as alerts_service
 import db
 from physics import TickState, next_tick, scenario_for
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -83,12 +87,14 @@ async def run(interval_seconds: float = 5.0) -> None:
                     {"_id": {"$in": [d["device_id"] for d in docs]}},
                     {"$set": {"last_ping": ts}},
                 )
+                await alerts_service.evaluate_and_persist(docs)
                 status.rows_inserted += len(docs)
                 status.ticks += 1
                 status.last_tick_at = ts
                 status.last_error = None
             except Exception as e:  # noqa: BLE001
                 status.last_error = f"{type(e).__name__}: {e}"
+                logger.exception("Simulator-tick fejlede")
     except asyncio.CancelledError:
         status.running = False
         raise

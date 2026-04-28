@@ -8,18 +8,25 @@ Interaktive docs på http://127.0.0.1:8000/docs
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 from fastapi import FastAPI, HTTPException, Query
 
+import alerts as alerts_service
 import db
 import simulator
-from models import Alert, DeviceStatus, MetricIn, Metric, Park
+from alerts import ALERT_TEMP_THRESHOLD_C, WARN_SEVERITY_C
+from models import Alert, AlertEvent, DeviceStatus, Metric, MetricIn, Park
 
-ALERT_TEMP_THRESHOLD_C = 70.0
-WARN_SEVERITY_C = 75.0
+logging.basicConfig(
+    level=os.getenv("LOG_LEVEL", "INFO"),
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+logger = logging.getLogger("windfarm")
+
 SIMULATOR_INTERVAL_S = float(os.getenv("SIMULATOR_INTERVAL", "5"))
 SIMULATOR_ENABLED = os.getenv("SIMULATOR_ENABLED", "1") != "0"
 
@@ -31,10 +38,14 @@ async def lifespan(_: FastAPI):
             f"Kan ikke nå MongoDB på {db.MONGO_URL}. Start databasen først."
         )
     await db.init_indexes()
+    logger.info("Forbundet til MongoDB %s (db=%s)", db.MONGO_URL, db.MONGO_DB)
 
     task: asyncio.Task | None = None
     if SIMULATOR_ENABLED:
+        logger.info("Starter live-simulator (interval=%.1fs)", SIMULATOR_INTERVAL_S)
         task = asyncio.create_task(simulator.run(SIMULATOR_INTERVAL_S))
+    else:
+        logger.info("Live-simulator deaktiveret (SIMULATOR_ENABLED=0)")
     try:
         yield
     finally:
@@ -45,6 +56,7 @@ async def lifespan(_: FastAPI):
             except asyncio.CancelledError:
                 pass
         db.close()
+        logger.info("Lukket MongoDB-forbindelse")
 
 
 app = FastAPI(
@@ -128,8 +140,10 @@ async def list_metrics(
 
 @app.post("/metrics", response_model=Metric, status_code=201, tags=["metrics"])
 async def upload_metric(payload: MetricIn):
+    """Event flow: Sensor Value Received → threshold-check → (evt.) Anomaly Detected."""
     device = await db.devices().find_one({"_id": payload.device_id})
     if not device:
+        logger.warning("Afvist måling fra ukendt device_id=%s", payload.device_id)
         raise HTTPException(400, f"Unknown device_id: {payload.device_id}")
 
     doc = {
@@ -141,6 +155,7 @@ async def upload_metric(payload: MetricIn):
     await db.devices().update_one(
         {"_id": payload.device_id}, {"$set": {"last_ping": doc["timestamp"]}}
     )
+    await alerts_service.evaluate_and_persist([doc])
     return doc
 
 
@@ -214,6 +229,31 @@ async def active_alerts(park_id: str | None = Query(None)):
             }
         )
     return out
+
+
+@app.get(
+    "/monitoring/alerts/history",
+    response_model=list[AlertEvent],
+    tags=["monitoring"],
+)
+async def alerts_history(
+    park_id: str | None = Query(None),
+    device_id: str | None = Query(None),
+    limit: int = Query(50, ge=1, le=500),
+):
+    """Persisteret 'Anomaly Detected' event log (kronologisk, nyeste først)."""
+    q: dict = {}
+    if park_id:
+        q["park_id"] = park_id
+    if device_id:
+        q["device_id"] = device_id
+    cursor = (
+        db.alerts()
+        .find(q, projection={"_id": 0})
+        .sort("timestamp", -1)
+        .limit(limit)
+    )
+    return [a async for a in cursor]
 
 
 @app.get("/monitoring/park-summary", tags=["monitoring"])

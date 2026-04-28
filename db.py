@@ -37,6 +37,11 @@ def metrics():
     return database()["metrics"]
 
 
+def alerts():
+    """Domain event log: 'Anomaly Detected' events."""
+    return database()["alerts"]
+
+
 METRIC_RETENTION_DAYS = int(os.getenv("METRIC_RETENTION_DAYS", "30"))
 
 
@@ -44,11 +49,12 @@ async def init_indexes() -> None:
     await devices().create_index("park_id")
     await metrics().create_index([("device_id", 1), ("timestamp", -1)])
     await metrics().create_index([("park_id", 1), ("timestamp", -1)])
-    # TTL-index: sletter metrics ældre end METRIC_RETENTION_DAYS automatisk
-    await metrics().create_index(
-        "timestamp",
-        expireAfterSeconds=METRIC_RETENTION_DAYS * 24 * 60 * 60,
-    )
+    await alerts().create_index([("device_id", 1), ("timestamp", -1)])
+    await alerts().create_index([("park_id", 1), ("timestamp", -1)])
+    # TTL-indekser: ryd op automatisk efter METRIC_RETENTION_DAYS
+    ttl_seconds = METRIC_RETENTION_DAYS * 24 * 60 * 60
+    await metrics().create_index("timestamp", expireAfterSeconds=ttl_seconds)
+    await alerts().create_index("timestamp", expireAfterSeconds=ttl_seconds)
 
 
 async def ping() -> bool:

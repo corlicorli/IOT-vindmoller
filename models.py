@@ -41,6 +41,8 @@ class Metric(MetricIn):
 
 
 class Alert(BaseModel):
+    """Live-view: seneste tilstand pr. mølle der overskrider threshold."""
+
     device_id: str
     park_id: str
     park_name: str
@@ -48,3 +50,15 @@ class Alert(BaseModel):
     gearbox_temp_c: float
     timestamp: datetime
     severity: str
+
+
+class AlertEvent(BaseModel):
+    """Persisteret 'Anomaly Detected' domain event."""
+
+    device_id: str
+    park_id: str
+    gearbox_temp_c: float
+    timestamp: datetime
+    severity: str
+    event_type: str
+    rule: str
