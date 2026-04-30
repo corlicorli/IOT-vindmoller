@@ -1,86 +1,168 @@
 # IOT Vindmøller — Wind Farm API
 
-REST-API til overvågning af 3 fiktive vindmølleparker for **Intelligent IoT Solutions A/S** (KEA 6. semester, Afleveringsopgave 2 — Teknisk MVP).
+REST-API platform til vindmølleparker for **Intelligent IoT Solutions A/S** (KEA 6. semester, Afleveringsopgave 2 — Teknisk MVP).
 
-**Stack:** FastAPI · MongoDB · Motor (async driver) · Docker · Grafana · GitHub Actions CI
+Kunder registrerer deres parker og IoT-enheder via API'et og uploader sensor-målinger fra deres møller. Systemet udfører trin-baseret anomaly detection, persisterer domain events, dispatcher operator-notifikationer ved kritiske alarmer, og laver trend-baserede forudsigelser om kommende fejl.
+
+**Stack:** FastAPI · MongoDB · Motor · Docker · Prometheus · Grafana · GitHub Actions CI
 
 [![CI](https://github.com/corlicorli/IOT-vindmoller/actions/workflows/ci.yml/badge.svg)](https://github.com/corlicorli/IOT-vindmoller/actions/workflows/ci.yml)
 
-## Domænet kort
-
-**Predictive Maintenance** for vindmølleparker — implementeret i alle tre klassiske PdM-lag:
+## Domæne — Predictive Maintenance i 3 lag
 
 ```
-Lag 1: Dataindsamling     Sensor Value Received   ─► metrics-collection
-                          (POST /metrics)
+Lag 1: Dataindsamling     POST /metrics                  ─► metrics-collection
+                          POST /metrics/bulk              ─► (Sensor Value Received)
 
-Lag 2: Anomaly detection  Threshold-regel:        ─► alerts-collection
-                          gearbox_temp_c > 70°C    ─► WARNING-log
-                          (alerts.py)              ─► severity: CRITICAL/WARNING
+Lag 2: Anomaly detection  Threshold: gearbox_temp > 70°C ─► alerts-collection
+       + Notification     CRITICAL → operator-webhook    ─► notifications-collection
+                                                            (SENT/FAILED/SKIPPED)
 
-Lag 3: Trend-forudsigelse Lineær regression       ─► /monitoring/predictions
-                          på sidste 7 dages temp.  ─► ETA til threshold-brud
-                          (predictions.py)         ─► risk-klassifikation
+Lag 3: Trend-forudsigelse Lineær regression på           ─► /monitoring/predictions
+                          7 dages historik                ─► ETA + risk-klassifikation
 ```
 
-## Funktioner
+Plus: **API observability** via Prometheus + Grafana — viser request-rate, latency-percentiler, error rate.
 
-- 3 parker (Aalborg Nord, Esbjerg Vest, Thy Klit) med 5-7 møller hver (18 i alt)
-- Live-simulator der genererer en ny måling pr. mølle hvert 5. sekund
-- Realistisk turbine-fysik med scenarie-baseret slidtage (overheat_drift +2°C/dag, aging +0.7°C/dag)
-- Domain event-log: `Anomaly Detected` events persisteres separat med severity og rule
-- **Trend-baseret forudsigelse**: lineær regression giver ETA til threshold-brud + risk-klassifikation
-- **Grafana-dashboard** auto-provisioneret: live-overblik over alle 3 PdM-lag på én side
-- TTL-indekser — metrics og alerts slettes automatisk efter 30 dage
-- 37 automatiserede tests (22 unit + 15 integration) kørt i GitHub Actions CI
+## Arkitektur
+
+```
+┌─────────────┐       POST /parks, /devices, /metrics       ┌────────────────┐
+│   Kunde     │ ────────────────────────────────────────►   │   FastAPI      │
+│  (IoT/Pi/   │                                              │   :8000         │
+│   Postman)  │ ◄────────────────────────────────────────── │                 │
+└─────────────┘       JSON responses                         │                 │
+                                                              │  ┌──────────┐ │
+┌─────────────┐  CRITICAL alert webhook                      │  │ alerts   │ │
+│  Operator   │ ◄────────────────────────────────────────── │  │ predict  │ │
+│  Vagtsystem │                                              │  └──────────┘ │
+└─────────────┘                                              └────────────────┘
+                                                                       │
+                                                                       ▼
+                                                              ┌────────────────┐
+                                                              │   MongoDB      │
+                                                              │ parks/devices  │
+                                                              │ metrics/alerts │
+                                                              │ notifications  │
+                                                              └────────────────┘
+                                                                       ▲
+                                                                       │ scrape
+┌─────────────┐  Prometheus queries     ┌────────────────┐    ┌────────────────┐
+│   Grafana   │ ─────────────────────►  │  Prometheus    │ ── │ /observability │
+│   :3001     │                          │   :9090         │    │   /metrics     │
+│  dashboards │  Infinity (REST polling) ──────────────► API endpoints
+└─────────────┘
+```
 
 ## Krav
 
-- **Docker Desktop** (anbefalet vej) — eller **Python 3.12+** + en MongoDB-instans
+- **Docker Desktop** (anbefalet) — eller **Python 3.12+** + en kørende MongoDB
 
-## Quick start
+## Quick start (Docker)
 
-### Vej A — Docker (anbefalet, ~30 sekunder)
-
-Hele stacken (API + MongoDB + mongo-express + Grafana) startes med én kommando:
+Hele stacken (API + MongoDB + mongo-express + Prometheus + Grafana) starter med én kommando:
 
 ```bash
 git clone https://github.com/corlicorli/IOT-vindmoller.git
 cd IOT-vindmoller
 docker compose up --build -d
-
-# Seed databasen med 14 dages historik (giver Grafana-dashboardet meningsfulde trends)
-docker compose exec api python seed.py --days 14 --interval 30
-
-# Genstart api så simulator picker enheder op
-docker restart iot-api
 ```
+
+Stacken starter **tom** — ingen pre-seedet data. Kunden bygger sin overvågning op selv via API'et.
 
 | Service | URL | Til hvad |
 |---|---|---|
-| **Grafana-dashboard** | **http://localhost:3001/d/wind-farm-ops** | **Live overblik — alle 3 PdM-lag** |
-| API + Swagger UI | http://localhost:8000/docs | Test endpoints |
-| mongo-express | http://localhost:8081 | Browse 4 collections live |
-| MongoDB | `localhost:27017` | Direkte mongosh-adgang |
+| **API + Swagger UI** | http://localhost:8000/docs | Test endpoints interaktivt |
+| **Wind Farm Operations dashboard** | http://localhost:3001/d/wind-farm-ops | Live PdM-status (alle 3 lag) |
+| **API Observability dashboard** | http://localhost:3001/d/api-observability | Request-rate, latency, errors |
+| Prometheus | http://localhost:9090 | Rå metric-queries |
+| mongo-express | http://localhost:8081 | Browse MongoDB |
+| MongoDB | `localhost:27017` | mongosh-adgang |
 
-Grafana er auto-provisioneret med anonym viewer-adgang — ingen login nødvendig.
-
-### Vej B — Lokal Python + Atlas
+## Onboarding — kunden registrerer sin første park
 
 ```bash
-git clone https://github.com/corlicorli/IOT-vindmoller.git
-cd IOT-vindmoller
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+# 1. Opret en park
+curl -X POST http://localhost:8000/parks \
+  -H 'content-type: application/json' \
+  -d '{
+    "park_id": "PARK-AALBORG-NORD",
+    "name": "Aalborg Nord",
+    "region": "Nordjylland",
+    "lat": 57.05,
+    "lng": 9.92
+  }'
 
-cp .env.example .env
-# Rediger .env: indsæt din egen MongoDB Atlas connection-string
-# OBS: Atlas kræver at din IP er whitelisted under Network Access
+# 2. Registrer en mølle på parken
+curl -X POST http://localhost:8000/parks/PARK-AALBORG-NORD/devices \
+  -H 'content-type: application/json' \
+  -d '{
+    "device_id": "IOT-DK-AAL-001",
+    "wind_turbine_id": "WTG-AAL-001",
+    "firmware_version": "v2.4.1"
+  }'
 
-python seed.py --days 1 --interval 30
-uvicorn main:app --reload
+# 3. Send en måling fra IoT-enheden
+curl -X POST http://localhost:8000/metrics \
+  -H 'content-type: application/json' \
+  -d '{
+    "device_id": "IOT-DK-AAL-001",
+    "wind_speed_ms": 14,
+    "power_output_kw": 2400,
+    "rotor_rpm": 16,
+    "gearbox_temp_c": 88
+  }'
+
+# 4. Se den persisterede Anomaly Detected event
+curl http://localhost:8000/monitoring/alerts/history | jq
+
+# 5. Se operator-notifications dispatch-historik
+curl http://localhost:8000/monitoring/notifications | jq
 ```
+
+### Postman-collection
+
+Fuldt onboarding-flow er klar til import: [`postman/wind-farm-api.postman_collection.json`](postman/wind-farm-api.postman_collection.json) — 24 requests fordelt på Setup → Onboarding → Demo-flow → Monitoring → Cleanup.
+
+### Demo-data populator (valgfri)
+
+For at få et fyldt dashboard hurtigt — populér 14 dages historik via API'et:
+
+```bash
+docker compose exec api python scripts/populate_demo.py --days 14 --interval 30
+```
+
+Scriptet bruger udelukkende det offentlige API (`POST /parks`, `POST /parks/X/devices`, `POST /metrics/bulk`) — præcis som en kunde med en eksisterende fleet ville gøre. **I produktion vil hver måling i stedet komme fra en rigtig IoT-enhed.**
+
+## Operator-notifikation ved CRITICAL alarmer
+
+Når en CRITICAL alert udløses (gearkasse > 75°C), sendes en webhook til operatørens vagt-system:
+
+```bash
+# Sæt webhook URL i .env eller docker-compose
+OPERATOR_WEBHOOK_URL=https://operator.example.com/iot-alerts
+```
+
+Payload:
+```json
+{
+  "event_type": "ANOMALY_NOTIFICATION",
+  "device_id": "IOT-DK-AAL-001",
+  "park_id": "PARK-AALBORG-NORD",
+  "severity": "CRITICAL",
+  "gearbox_temp_c": 88.0,
+  "timestamp": "2026-04-30T12:34:56+00:00",
+  "rule": "gearbox_temp_c > 70",
+  "action_required": "INSPECT_TURBINE"
+}
+```
+
+Resultatet (SENT/FAILED/SKIPPED) persisteres i `notifications`-collection og kan ses via `GET /monitoring/notifications`. Til demo-formål kan du bruge https://webhook.site eller `nc -l 9999`.
+
+Konfiguration:
+- `OPERATOR_WEBHOOK_URL` — destination (uden = SKIPPED, kun logget)
+- `NOTIFY_SEVERITIES` — default `CRITICAL`. Sæt til `CRITICAL,WARNING` for alle alarmer
+- `WEBHOOK_TIMEOUT_S` — default 3.0 sek
 
 ## Test
 
@@ -89,95 +171,56 @@ pip install -r requirements-dev.txt
 pytest -v
 ```
 
-Forventet output: `37 passed`. Tests kræver en kørende MongoDB; integration-tests skipper pænt hvis intet er tilgængeligt på `localhost:27017`. Den nemmeste vej er at lade Docker-stacken stå oppe mens man kører pytest.
+Forventet output: `55 passed`. Tests kræver kørende MongoDB (Docker eller lokal). Integration-tests skipper pænt hvis DB ikke er tilgængelig.
 
 CI kører automatisk ved push til `main` — se [Actions-fanen](https://github.com/corlicorli/IOT-vindmoller/actions).
 
-## Eksempler — eventflow live
-
-Mens API'et kører, prøv:
-
-```bash
-# Sundheds-tjek
-curl http://localhost:8000/health
-# → {"mongo": true}
-
-# Send en normal måling (ingen anomali)
-curl -X POST http://localhost:8000/metrics \
-  -H 'content-type: application/json' \
-  -d '{"device_id":"IOT-DK-ALB-001","wind_speed_ms":8,"power_output_kw":1500,
-       "rotor_rpm":12,"gearbox_temp_c":55}'
-
-# Send en måling der overskrider threshold (88°C)
-curl -X POST http://localhost:8000/metrics \
-  -H 'content-type: application/json' \
-  -d '{"device_id":"IOT-DK-ALB-001","wind_speed_ms":15,"power_output_kw":2500,
-       "rotor_rpm":16,"gearbox_temp_c":88}'
-
-# Se det persisterede Anomaly Detected event (lag 2)
-curl http://localhost:8000/monitoring/alerts/history | jq
-
-# Se PdM-forudsigelser (lag 3) — sorteret med højest risiko først
-curl http://localhost:8000/monitoring/predictions | jq
-
-# Forudsigelse for én konkret mølle
-curl http://localhost:8000/monitoring/predictions/IOT-DK-ALB-002 | jq
-
-# Se park-totaler
-curl http://localhost:8000/monitoring/park-summary | jq
-```
-
-### Postman-collection
-
-Vil du teste det hele i et UI? Importér [`postman/wind-farm-api.postman_collection.json`](postman/wind-farm-api.postman_collection.json) i Postman:
-
-1. Postman → **Import** → vælg filen
-2. Kør requests fra mappen "**2. Demo-flow**" sekventielt med ~12s pause så Grafana auto-refresher
-3. Skift `baseUrl` collection-variablen hvis API'et kører på en anden host
-
-Indeholder 17 requests dækkende health-tjek, alle 3 PdM-lag, samt edge-cases (ukendt device, validering).
-
-Eksempel-output fra `/monitoring/predictions` efter `seed.py --days 14`:
-
-```json
-[
-  { "device_id": "IOT-DK-ALB-002", "risk": "HIGH",
-    "current_temp_c": 91.3, "trend_c_per_day": 8.62, ... },
-  { "device_id": "IOT-DK-ALB-001", "risk": "MEDIUM",
-    "current_temp_c": 58.5, "trend_c_per_day": 8.0,
-    "days_until_breach": 1.4, "eta_threshold_breach": "2026-04-29T..." }
-]
-```
-
 ## Endpoints
 
+### Kunde-registrering (CRUD)
 | Endpoint | Metode | Beskrivelse |
 |---|---|---|
-| `/health` | GET | Liveness-tjek (Mongo-ping) |
-| `/` | GET | Service-metadata |
-| `/parks`, `/parks/{id}`, `/parks/{id}/devices` | GET | Park-info |
-| `/devices`, `/devices/{id}` | GET | IoT-enhed status (firmware, batteri, fejlkode) |
+| `/parks` | POST | Registrer ny park |
+| `/parks` | GET | List alle parker |
+| `/parks/{park_id}` | GET | Hent én park (turbine_count beregnet) |
+| `/parks/{park_id}` | DELETE | Slet park + cascade devices/metrics/alerts |
+| `/parks/{park_id}/devices` | GET | Møller på en park |
+| `/parks/{park_id}/devices` | POST | Registrer ny mølle på en park |
+| `/devices`, `/devices/{id}` | GET | Mølle-info |
+| `/devices/{device_id}` | DELETE | Slet mølle + cascade metrics/alerts |
+
+### IoT-data
+| Endpoint | Metode | Beskrivelse |
+|---|---|---|
+| `/metrics` | POST | Modtag enkelt måling fra IoT-enhed (lag 1) |
+| `/metrics/bulk` | POST | Batch-upload — for IoT-gateways der buffrer |
 | `/metrics` | GET | Tidsserie-data (`?device_id=`, `?park_id=`, `?limit=`) |
-| **`/metrics`** | **POST** | **Modtag måling fra IoT-enhed — trigger event-flowet** |
-| `/monitoring/alerts` | GET | **Lag 2** — live-view: aktuelle møller med temp > 70°C |
-| `/monitoring/alerts/history` | GET | **Lag 2** — persisteret event-log af alle Anomaly Detected events |
-| **`/monitoring/predictions`** | **GET** | **Lag 3 — trend-baseret forudsigelse pr. mølle med ETA og risk** |
-| **`/monitoring/predictions/{id}`** | **GET** | **Lag 3 for én mølle** |
-| **`/monitoring/stats`** | **GET** | **Aggregeret status — counters fra alle 3 lag (drives Grafana)** |
-| `/monitoring/park-summary` | GET | Totaler pr. park (effekt, gns. vind, max temp) |
-| `/monitoring/simulator` | GET | Status på live-simulatoren |
+
+### Monitoring (PdM 3-lag + notifikation)
+| Endpoint | Metode | Beskrivelse |
+|---|---|---|
+| `/monitoring/alerts` | GET | **Lag 2** — live aktive alarmer |
+| `/monitoring/alerts/history` | GET | **Lag 2** — Anomaly Detected event-log |
+| `/monitoring/notifications` | GET | **Notification dispatch-historik** (SENT/FAILED/SKIPPED) |
+| `/monitoring/predictions` | GET | **Lag 3** — trend-baseret forudsigelse pr. mølle |
+| `/monitoring/predictions/{id}` | GET | **Lag 3** for én mølle |
+| `/monitoring/stats` | GET | Aggregeret status (driver Grafana-dashboard) |
+| `/monitoring/park-summary` | GET | Totaler pr. park |
+| `/health` | GET | Liveness-tjek |
+| `/observability/metrics` | GET | Prometheus-format API-metrics |
 | `/docs` | GET | Auto-genereret Swagger UI |
 
-## Datamodel — 4 MongoDB collections
+## Datamodel — 5 MongoDB collections
 
-| Collection | Indhold | Type |
+| Collection | Indhold | Kategori |
 |---|---|---|
-| `parks` | Vindmølleparker | Domain entities |
-| `devices` | IoT-enheder pr. mølle (firmware, batteri, signal, error-kode) | Domain entities |
-| `metrics` | Tidsserie af drift-data | **`Sensor Value Received` event-log** |
-| `alerts` | Threshold-overskridelser med severity og rule | **`Anomaly Detected` event-log** |
+| `parks` | Vindmølleparker | Domain entity |
+| `devices` | IoT-enheder pr. mølle | Domain entity |
+| `metrics` | Sensor-målinger (tidsserie) | **Sensor Value Received event-log** |
+| `alerts` | Threshold-overskridelser | **Anomaly Detected event-log** |
+| `notifications` | Webhook dispatch-resultater | **Notification audit-log** |
 
-TTL-indekser sletter `metrics` og `alerts` ældre end 30 dage automatisk.
+TTL-indekser sletter `metrics`, `alerts`, `notifications` ældre end 30 dage automatisk.
 
 ## Konfiguration (env-vars)
 
@@ -185,42 +228,45 @@ TTL-indekser sletter `metrics` og `alerts` ældre end 30 dage automatisk.
 |---|---|---|
 | `MONGO_URL` | `mongodb://localhost:27017` | Connection-string |
 | `MONGO_DB` | `iot_solutions` | Database-navn |
-| `SIMULATOR_ENABLED` | `1` | Sæt `0` for at slå live-tikken fra (bruges i tests) |
-| `SIMULATOR_INTERVAL` | `5` | Sekunder mellem ticks |
-| `METRIC_RETENTION_DAYS` | `30` | TTL for metrics og alerts |
-| `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
-
-Læses fra `.env` ved opstart. Værdier sat i shell-environment trumfer `.env`.
+| `METRIC_RETENTION_DAYS` | `30` | TTL for metrics, alerts, notifications |
+| `OPERATOR_WEBHOOK_URL` | _(unset)_ | Destination for CRITICAL alert-notifikationer |
+| `NOTIFY_SEVERITIES` | `CRITICAL` | Komma-separeret liste, fx `CRITICAL,WARNING` |
+| `WEBHOOK_TIMEOUT_S` | `3.0` | HTTP-timeout for webhook-dispatch |
+| `LOG_LEVEL` | `INFO` | DEBUG/INFO/WARNING/ERROR |
 
 ## Projektstruktur
 
 ```
 main.py            — FastAPI app, lifespan, alle endpoints
 alerts.py          — Lag 2: Threshold-regel + persistering af Anomaly Detected events
-predictions.py     — Lag 3: Lineær regression på temperatur-historik (ETA + risk)
+predictions.py     — Lag 3: Lineær regression på temperatur-historik
+notifications.py   — Operator-notifikation via webhook ved CRITICAL alerts
 db.py              — Motor MongoDB-klient + collection-helpers + indexer
 models.py          — Pydantic-skemaer for I/O-validering
-physics.py         — Turbine-fysik og driftsscenarier (incl. lineær drift over tid)
-simulator.py       — Live-tikker som baggrundstask
-seed.py            — Bootstrap historiske data
-tests/             — pytest-suite (37 tests: unit + integration)
+physics.py         — Turbine-fysik (kun brugt af populate_demo.py)
+scripts/
+  populate_demo.py — VALGFRI demo-data populator via HTTP API
+tests/             — pytest-suite (55 tests: unit + integration)
 Dockerfile         — Production-image (non-root, healthcheck)
-docker-compose.yml — Hele stacken (api + mongo + mongo-express + grafana)
-grafana/           — Auto-provisioneret datasource + Wind Farm Operations dashboard
-postman/           — Postman-collection med 17 demo-requests
+docker-compose.yml — Hele stacken (api + mongo + mongo-express + prometheus + grafana)
+prometheus/        — Prometheus scrape-konfig
+grafana/
+  dashboards/      — Wind Farm Operations + API Observability dashboards
+  provisioning/    — Auto-provisioneret datasources (Infinity + Prometheus)
+postman/           — Importerbar Postman-collection
 .github/workflows/ — CI: pytest + Docker build
 ```
 
 ## Mapping til opgavekrav
 
-| PDF-krav (Afleveringsopgave 2) | Implementering |
+| Krav (Afleveringsopgave 2) | Implementering |
 |---|---|
-| Predictive Maintenance / notifikation som core subdomain | Implementeret i 3 lag (data, anomaly, prediction) |
-| Events: Sensor Value Received, Anomaly Detected | Persisteret i `metrics` og `alerts` collections |
-| Beslutninger: Threshold-check, alarm/notifikation | `alerts.py` (her og nu) + `predictions.py` (fremadrettet) |
-| Event → beslutning → handling | `POST /metrics` → threshold-regel → persistér event + log |
-| REST API tilgås remote (IoT device) | FastAPI på `0.0.0.0:8000`, dokumenteret i `/docs` |
-| Domæne-logik (validering, hændelse, beslutning) | Pydantic-validering, anomaly-event, severity + risk-klassifikation |
-| Persistering af domain events i separat DB | MongoDB med 4 collections, 2 dedikerede event-logs |
-| Kvalitet og drift — monitorering | Grafana-dashboard på `:3001` med live counters, predictions-tabel og event-log |
+| Predictive Maintenance / notifikation core subdomain | 3 lag: data → anomaly → prediction. Plus webhook-notifikation til operatør |
+| Events: Sensor Value Received, Anomaly Detected | `metrics` og `alerts` collections — separate domain events |
+| Beslutninger: Threshold-check, alarm/notifikation | `alerts.py` (regel) + `notifications.py` (dispatch) |
+| Event → beslutning → handling | POST /metrics → threshold → persistér event + log + webhook |
+| REST API tilgås remote | FastAPI på `0.0.0.0:8000`, fuld kunde-CRUD via Postman |
+| Domæne-logik (validering, hændelse, beslutning) | Pydantic, anomaly-event, severity + risk-klassifikation, cascade-delete |
+| Persistering af domain events i separat DB | MongoDB med 5 collections, 3 dedikerede event/audit-logs |
+| Kvalitet og drift — monitorering | **Wind Farm Operations dashboard** (PdM-status) + **API Observability dashboard** (request-rate, latency, errors) — begge auto-provisioneret i Grafana |
 | CI/CD med GitHub/Docker | GitHub Actions: pytest + Docker-build på hver push |

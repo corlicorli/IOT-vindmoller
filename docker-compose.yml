@@ -8,8 +8,6 @@ services:
     environment:
       MONGO_URL: mongodb://mongo:27017
       MONGO_DB: iot_solutions
-      SIMULATOR_INTERVAL: "5"
-      SIMULATOR_ENABLED: "1"
       METRIC_RETENTION_DAYS: "30"
       LOG_LEVEL: INFO
     depends_on:
@@ -59,7 +57,25 @@ services:
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
     depends_on:
       - api
+      - prometheus
+
+  prometheus:
+    image: prom/prometheus:v2.55.0
+    container_name: iot-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=7d'
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    depends_on:
+      - api
 
 volumes:
   mongo_data:
   grafana_data:
+  prometheus_data:

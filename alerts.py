@@ -3,6 +3,7 @@
 Domain event flow:
     Sensor Value Received  -> metrics-collection
     Anomaly Detected       -> alerts-collection (denne fil)
+        -> ved CRITICAL: dispatch til operator-webhook (notifications.py)
 """
 from __future__ import annotations
 
@@ -10,6 +11,7 @@ import logging
 from typing import Iterable
 
 import db
+import notifications as notifier
 
 logger = logging.getLogger(__name__)
 
@@ -58,4 +60,7 @@ async def evaluate_and_persist(metrics_docs: Iterable[dict]) -> int:
             a["severity"],
             a["rule"],
         )
+    # Dispatch operator-notifikation (kun CRITICAL by default).
+    # Alt fejl-håndtering sker internt — webhook-fejl må ikke ødelægge ingestion.
+    await notifier.dispatch_critical_alerts(new_alerts)
     return len(new_alerts)
