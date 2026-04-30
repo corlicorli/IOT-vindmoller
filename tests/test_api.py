@@ -211,6 +211,47 @@ async def test_predictions_stable_device_has_no_eta(client, seeded):
     assert body["risk"] == "LOW"
 
 
+async def test_stats_endpoint_empty_database(client):
+    """Med tom DB skal stats returnere nuller, ikke fejle."""
+    r = await client.get("/monitoring/stats")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["parks"] == 0
+    assert body["devices"] == 0
+    assert body["active_alerts"]["total"] == 0
+    assert body["predictions"]["high_risk"] == 0
+    assert body["events"]["total"] == 0
+
+
+async def test_stats_endpoint_with_seed_and_alert(client, seeded):
+    """Stats skal afspejle seed + en POSTet anomaly-måling."""
+    # Trigger en anomaly via API
+    await client.post(
+        "/metrics",
+        json={
+            "device_id": "IOT-DK-ALB-001",
+            "wind_speed_ms": 14.0,
+            "power_output_kw": 2400.0,
+            "rotor_rpm": 15.0,
+            "gearbox_temp_c": 82.0,
+        },
+    )
+
+    r = await client.get("/monitoring/stats")
+    assert r.status_code == 200
+    body = r.json()
+
+    assert body["parks"] == 1
+    assert body["devices"] == 1
+    # 82 > 75 → CRITICAL
+    assert body["active_alerts"]["critical"] == 1
+    assert body["active_alerts"]["warning"] == 0
+    assert body["active_alerts"]["total"] == 1
+    # En event blev persisteret af POST
+    assert body["events"]["total"] == 1
+    assert body["events"]["last_24h"] == 1
+
+
 async def test_predictions_list_sorts_high_risk_first(client, seeded):
     """Indsæt to møller — én med stærk trend, én stabil. HIGH/MEDIUM skal komme før LOW."""
     from datetime import datetime, timedelta, timezone

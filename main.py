@@ -11,7 +11,7 @@ import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import FastAPI, HTTPException, Query
 
@@ -184,9 +184,12 @@ async def simulator_status():
     }
 
 
-@app.get("/monitoring/alerts", response_model=list[Alert], tags=["monitoring"])
-async def active_alerts(park_id: str | None = Query(None)):
-    """Seneste måling pr. mølle; alarm hvis gearkasse-temp > 70°C."""
+async def _active_alerts_data(park_id: str | None = None) -> list[dict]:
+    """Helper: seneste tilstand pr. mølle der overskrider threshold.
+
+    Adskilt fra endpoint så den kan genbruges fra stats-endpoint uden at
+    Query()-default-objektet kommer ind som "park_id".
+    """
     match: dict = {}
     if park_id:
         match["park_id"] = park_id
@@ -234,10 +237,18 @@ async def active_alerts(park_id: str | None = Query(None)):
                 "wind_turbine_id": device.get("wind_turbine_id", ""),
                 "gearbox_temp_c": row["gearbox_temp_c"],
                 "timestamp": row["timestamp"],
-                "severity": "CRITICAL" if row["gearbox_temp_c"] > WARN_SEVERITY_C else "WARNING",
+                "severity": (
+                    "CRITICAL" if row["gearbox_temp_c"] > WARN_SEVERITY_C else "WARNING"
+                ),
             }
         )
     return out
+
+
+@app.get("/monitoring/alerts", response_model=list[Alert], tags=["monitoring"])
+async def active_alerts(park_id: str | None = Query(None)):
+    """Seneste måling pr. mølle; alarm hvis gearkasse-temp > 70°C."""
+    return await _active_alerts_data(park_id)
 
 
 @app.get(
@@ -293,6 +304,52 @@ async def device_prediction(device_id: str):
             ),
         )
     return pred
+
+
+@app.get("/monitoring/stats", tags=["monitoring"])
+async def stats() -> dict:
+    """Aggregeret statusoverblik — én JSON med alle counters til dashboards (Grafana o.l.).
+
+    Samler tal fra alle 3 PdM-lag plus event-log totaler i ét response, så
+    visualiserings-værktøjer ikke skal rate ad flere endpoints for et statusbillede.
+    """
+    park_count = await db.parks().count_documents({})
+    device_count = await db.devices().count_documents({})
+
+    active = await _active_alerts_data()
+    critical_count = sum(1 for a in active if a["severity"] == "CRITICAL")
+    warning_count = sum(1 for a in active if a["severity"] == "WARNING")
+
+    preds = await predictions_service.predict_all()
+    high_risk = sum(1 for p in preds if p["risk"] == "HIGH")
+    medium_risk = sum(1 for p in preds if p["risk"] == "MEDIUM")
+    low_risk = sum(1 for p in preds if p["risk"] == "LOW")
+
+    total_events = await db.alerts().count_documents({})
+    cutoff_24h = datetime.now(timezone.utc) - timedelta(days=1)
+    events_24h = await db.alerts().count_documents(
+        {"timestamp": {"$gte": cutoff_24h}}
+    )
+
+    return {
+        "parks": park_count,
+        "devices": device_count,
+        "active_alerts": {
+            "critical": critical_count,
+            "warning": warning_count,
+            "total": critical_count + warning_count,
+        },
+        "predictions": {
+            "high_risk": high_risk,
+            "medium_risk": medium_risk,
+            "low_risk": low_risk,
+            "total_analyzed": len(preds),
+        },
+        "events": {
+            "total": total_events,
+            "last_24h": events_24h,
+        },
+    }
 
 
 @app.get("/monitoring/park-summary", tags=["monitoring"])
