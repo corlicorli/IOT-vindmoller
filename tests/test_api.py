@@ -118,6 +118,321 @@ async def test_alerts_history_endpoint_returns_persisted_events(client, seeded):
     assert r3.json() == []
 
 
+# --- Customer-facing CRUD (kunde-onboarding) -------------------------------
+
+
+async def test_create_park_succeeds_with_valid_payload(client):
+    r = await client.post(
+        "/parks",
+        json={
+            "park_id": "PARK-NEW-1",
+            "name": "Test Park",
+            "region": "Nordjylland",
+            "lat": 57.0,
+            "lng": 9.5,
+        },
+    )
+    assert r.status_code == 201
+    body = r.json()
+    assert body["_id"] == "PARK-NEW-1"
+    assert body["name"] == "Test Park"
+    assert body["turbine_count"] == 0
+
+
+async def test_create_park_rejects_duplicate_id(client):
+    payload = {
+        "park_id": "PARK-DUPE",
+        "name": "X",
+        "region": "Y",
+        "lat": 0,
+        "lng": 0,
+    }
+    assert (await client.post("/parks", json=payload)).status_code == 201
+    r = await client.post("/parks", json=payload)
+    assert r.status_code == 409
+
+
+async def test_create_park_rejects_invalid_id_format(client):
+    r = await client.post(
+        "/parks",
+        json={
+            "park_id": "lowercase-bad",  # skal starte med stort bogstav
+            "name": "X",
+            "region": "Y",
+            "lat": 0,
+            "lng": 0,
+        },
+    )
+    assert r.status_code == 422
+
+
+async def test_create_park_rejects_invalid_coordinates(client):
+    r = await client.post(
+        "/parks",
+        json={
+            "park_id": "PARK-OOB",
+            "name": "X",
+            "region": "Y",
+            "lat": 999,  # uden for [-90, 90]
+            "lng": 0,
+        },
+    )
+    assert r.status_code == 422
+
+
+async def test_create_device_attaches_to_existing_park(client, seeded):
+    r = await client.post(
+        "/parks/PARK-ALB/devices",
+        json={
+            "device_id": "IOT-DK-ALB-NEW",
+            "wind_turbine_id": "WTG-ALB-NEW",
+        },
+    )
+    assert r.status_code == 201
+    body = r.json()
+    assert body["_id"] == "IOT-DK-ALB-NEW"
+    assert body["park_id"] == "PARK-ALB"
+    assert body["firmware_version"] == "v1.0.0"  # default
+    assert body["battery_level"] == 100  # default
+
+
+async def test_create_device_returns_404_when_park_unknown(client):
+    r = await client.post(
+        "/parks/PARK-NOT-EXIST/devices",
+        json={
+            "device_id": "IOT-DK-X-001",
+            "wind_turbine_id": "WTG-X-001",
+        },
+    )
+    assert r.status_code == 404
+
+
+async def test_create_device_rejects_duplicate(client, seeded):
+    payload = {"device_id": "IOT-DK-DUP", "wind_turbine_id": "WTG-DUP"}
+    assert (await client.post("/parks/PARK-ALB/devices", json=payload)).status_code == 201
+    r = await client.post("/parks/PARK-ALB/devices", json=payload)
+    assert r.status_code == 409
+
+
+async def test_list_parks_includes_computed_turbine_count(client, seeded):
+    # seeded opretter 1 device → turbine_count=1
+    r = await client.get("/parks")
+    assert r.status_code == 200
+    parks = r.json()
+    assert len(parks) == 1
+    assert parks[0]["turbine_count"] == 1
+
+    # Tilføj endnu et device → 2
+    await client.post(
+        "/parks/PARK-ALB/devices",
+        json={"device_id": "IOT-DK-ALB-002", "wind_turbine_id": "WTG-ALB-002"},
+    )
+    r2 = await client.get("/parks")
+    assert r2.json()[0]["turbine_count"] == 2
+
+
+async def test_delete_park_cascades_devices_metrics_alerts(client, seeded):
+    # Skab et metric (og dermed evt. alert)
+    await client.post(
+        "/metrics",
+        json={
+            "device_id": "IOT-DK-ALB-001",
+            "wind_speed_ms": 14.0,
+            "power_output_kw": 2400.0,
+            "rotor_rpm": 15.0,
+            "gearbox_temp_c": 85.0,
+        },
+    )
+    assert await db.devices().count_documents({"park_id": "PARK-ALB"}) == 1
+    assert await db.metrics().count_documents({"park_id": "PARK-ALB"}) == 1
+    assert await db.alerts().count_documents({"park_id": "PARK-ALB"}) == 1
+
+    r = await client.delete("/parks/PARK-ALB")
+    assert r.status_code == 204
+
+    assert await db.parks().count_documents({"_id": "PARK-ALB"}) == 0
+    assert await db.devices().count_documents({"park_id": "PARK-ALB"}) == 0
+    assert await db.metrics().count_documents({"park_id": "PARK-ALB"}) == 0
+    assert await db.alerts().count_documents({"park_id": "PARK-ALB"}) == 0
+
+
+async def test_delete_park_returns_404_when_unknown(client):
+    r = await client.delete("/parks/PARK-NOT-EXIST")
+    assert r.status_code == 404
+
+
+async def test_delete_device_cascades_metrics_alerts(client, seeded):
+    await client.post(
+        "/metrics",
+        json={
+            "device_id": "IOT-DK-ALB-001",
+            "wind_speed_ms": 14.0,
+            "power_output_kw": 2400.0,
+            "rotor_rpm": 15.0,
+            "gearbox_temp_c": 85.0,
+        },
+    )
+    r = await client.delete("/devices/IOT-DK-ALB-001")
+    assert r.status_code == 204
+    assert await db.devices().count_documents({"_id": "IOT-DK-ALB-001"}) == 0
+    assert await db.metrics().count_documents({"device_id": "IOT-DK-ALB-001"}) == 0
+    assert await db.alerts().count_documents({"device_id": "IOT-DK-ALB-001"}) == 0
+
+
+# --- Bulk metrics endpoint ---------------------------------------------------
+
+
+async def test_bulk_metrics_inserts_all_and_creates_alerts(client, seeded):
+    # Tilføj endnu et device så vi har to at bulk-uploade fra
+    await client.post(
+        "/parks/PARK-ALB/devices",
+        json={"device_id": "IOT-DK-ALB-002", "wind_turbine_id": "WTG-ALB-002"},
+    )
+
+    payload = {
+        "metrics": [
+            {
+                "device_id": "IOT-DK-ALB-001",
+                "wind_speed_ms": 12,
+                "power_output_kw": 2000,
+                "rotor_rpm": 14,
+                "gearbox_temp_c": 65,
+            },
+            {
+                "device_id": "IOT-DK-ALB-002",
+                "wind_speed_ms": 14,
+                "power_output_kw": 2500,
+                "rotor_rpm": 16,
+                "gearbox_temp_c": 82,  # CRITICAL
+            },
+        ]
+    }
+    r = await client.post("/metrics/bulk", json=payload)
+    assert r.status_code == 201
+    body = r.json()
+    assert body["metrics_inserted"] == 2
+    assert body["alerts_created"] == 1  # kun en var > 70°C
+
+
+async def test_bulk_metrics_rejects_unknown_device(client, seeded):
+    r = await client.post(
+        "/metrics/bulk",
+        json={
+            "metrics": [
+                {
+                    "device_id": "IOT-DK-ALB-001",
+                    "wind_speed_ms": 8,
+                    "power_output_kw": 1000,
+                    "rotor_rpm": 10,
+                    "gearbox_temp_c": 50,
+                },
+                {
+                    "device_id": "IOT-DK-UNKNOWN",
+                    "wind_speed_ms": 8,
+                    "power_output_kw": 1000,
+                    "rotor_rpm": 10,
+                    "gearbox_temp_c": 50,
+                },
+            ]
+        },
+    )
+    assert r.status_code == 400
+    # Hele batchen afvises — første gyldige måling må IKKE persisteres
+    assert await db.metrics().count_documents({}) == 0
+
+
+async def test_bulk_metrics_rejects_empty_batch(client):
+    r = await client.post("/metrics/bulk", json={"metrics": []})
+    assert r.status_code == 422
+
+
+# --- Operator notifications (webhook dispatch) ------------------------------
+
+
+async def test_critical_alert_persists_skipped_notification_when_no_webhook(
+    client, seeded, monkeypatch
+):
+    """Uden OPERATOR_WEBHOOK_URL skal CRITICAL alerts persistere SKIPPED notification."""
+    monkeypatch.delenv("OPERATOR_WEBHOOK_URL", raising=False)
+    await client.post(
+        "/metrics",
+        json={
+            "device_id": "IOT-DK-ALB-001",
+            "wind_speed_ms": 14,
+            "power_output_kw": 2400,
+            "rotor_rpm": 15,
+            "gearbox_temp_c": 88,  # CRITICAL
+        },
+    )
+    notifs = [n async for n in db.notifications().find()]
+    assert len(notifs) == 1
+    assert notifs[0]["severity"] == "CRITICAL"
+    assert notifs[0]["status"] == "SKIPPED"
+    assert notifs[0]["device_id"] == "IOT-DK-ALB-001"
+
+
+async def test_warning_alert_does_not_trigger_notification_by_default(
+    client, seeded, monkeypatch
+):
+    """Default-konfig sender kun ved CRITICAL — ikke WARNING."""
+    monkeypatch.delenv("OPERATOR_WEBHOOK_URL", raising=False)
+    monkeypatch.delenv("NOTIFY_SEVERITIES", raising=False)
+    await client.post(
+        "/metrics",
+        json={
+            "device_id": "IOT-DK-ALB-001",
+            "wind_speed_ms": 12,
+            "power_output_kw": 2000,
+            "rotor_rpm": 14,
+            "gearbox_temp_c": 72,  # WARNING (>70 men <75)
+        },
+    )
+    assert await db.notifications().count_documents({}) == 0
+
+
+async def test_notifications_endpoint_returns_history(client, seeded, monkeypatch):
+    monkeypatch.delenv("OPERATOR_WEBHOOK_URL", raising=False)
+    # Skab tre CRITICAL alerts
+    for temp in (82, 85, 88):
+        await client.post(
+            "/metrics",
+            json={
+                "device_id": "IOT-DK-ALB-001",
+                "wind_speed_ms": 14,
+                "power_output_kw": 2400,
+                "rotor_rpm": 15,
+                "gearbox_temp_c": temp,
+            },
+        )
+
+    r = await client.get("/monitoring/notifications")
+    assert r.status_code == 200
+    rows = r.json()
+    assert len(rows) == 3
+    assert all(n["severity"] == "CRITICAL" for n in rows)
+    assert all(n["status"] == "SKIPPED" for n in rows)
+
+
+async def test_notifications_endpoint_filters_by_status(
+    client, seeded, monkeypatch
+):
+    monkeypatch.delenv("OPERATOR_WEBHOOK_URL", raising=False)
+    await client.post(
+        "/metrics",
+        json={
+            "device_id": "IOT-DK-ALB-001",
+            "wind_speed_ms": 14,
+            "power_output_kw": 2400,
+            "rotor_rpm": 15,
+            "gearbox_temp_c": 85,
+        },
+    )
+    r = await client.get("/monitoring/notifications?status=SENT")
+    assert r.json() == []
+    r2 = await client.get("/monitoring/notifications?status=SKIPPED")
+    assert len(r2.json()) == 1
+
+
 async def test_post_metrics_validation_rejects_negative_wind(client, seeded):
     r = await client.post(
         "/metrics",

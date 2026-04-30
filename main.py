@@ -7,26 +7,29 @@ Interaktive docs på http://127.0.0.1:8000/docs
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 
 from fastapi import FastAPI, HTTPException, Query
+from prometheus_fastapi_instrumentator import Instrumentator
 
 import alerts as alerts_service
 import db
 import predictions as predictions_service
-import simulator
 from alerts import ALERT_TEMP_THRESHOLD_C, WARN_SEVERITY_C
 from models import (
     Alert,
     AlertEvent,
+    DeviceCreate,
     DeviceStatus,
     Metric,
+    MetricBulk,
     MetricIn,
+    NotificationRecord,
     Park,
+    ParkCreate,
     Prediction,
 )
 
@@ -35,9 +38,6 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
 logger = logging.getLogger("windfarm")
-
-SIMULATOR_INTERVAL_S = float(os.getenv("SIMULATOR_INTERVAL", "5"))
-SIMULATOR_ENABLED = os.getenv("SIMULATOR_ENABLED", "1") != "0"
 
 
 @asynccontextmanager
@@ -48,32 +48,28 @@ async def lifespan(_: FastAPI):
         )
     await db.init_indexes()
     logger.info("Forbundet til MongoDB %s (db=%s)", db.redacted_url(), db.MONGO_DB)
-
-    task: asyncio.Task | None = None
-    if SIMULATOR_ENABLED:
-        logger.info("Starter live-simulator (interval=%.1fs)", SIMULATOR_INTERVAL_S)
-        task = asyncio.create_task(simulator.run(SIMULATOR_INTERVAL_S))
-    else:
-        logger.info("Live-simulator deaktiveret (SIMULATOR_ENABLED=0)")
     try:
         yield
     finally:
-        if task:
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
         db.close()
         logger.info("Lukket MongoDB-forbindelse")
 
 
 app = FastAPI(
     title="Intelligent IoT Solutions — Wind Farm API",
-    description="Managed Services kontrolcenter for 3 vindmølleparker (Aalborg, Esbjerg, Thy).",
-    version="0.2.0",
+    description="Managed Services kontrolcenter for vindmølleparker.",
+    version="0.3.0",
     lifespan=lifespan,
 )
+
+
+# --- Observability: Prometheus-instrumentering ------------------------------
+# Eksponeres på /observability/metrics — IKKE /metrics (det er IoT-data!).
+# Scrapeas af Prometheus container, visualiseret i Grafana API Observability dashboard.
+Instrumentator(
+    should_group_status_codes=False,
+    excluded_handlers=["/observability/metrics", "/health", "/docs", "/openapi.json"],
+).instrument(app).expose(app, endpoint="/observability/metrics", tags=["observability"])
 
 
 # --- Meta --------------------------------------------------------------------
@@ -96,22 +92,106 @@ async def health():
 
 # --- Parker ------------------------------------------------------------------
 
+# Aggregation: tilfølg turbine_count som "antal devices i denne park" — så vi
+# ikke skal vedligeholde tælleren manuelt og risikere drift.
+_PARK_WITH_COUNT_PIPELINE: list[dict] = [
+    {
+        "$lookup": {
+            "from": "devices",
+            "localField": "_id",
+            "foreignField": "park_id",
+            "as": "_devs",
+        }
+    },
+    {"$addFields": {"turbine_count": {"$size": "$_devs"}}},
+    {"$project": {"_devs": 0}},
+]
+
+
+@app.post("/parks", response_model=Park, status_code=201, tags=["parks"])
+async def create_park(payload: ParkCreate):
+    """Kunde registrerer en ny vindmøllepark."""
+    if await db.parks().find_one({"_id": payload.park_id}):
+        raise HTTPException(409, f"Park {payload.park_id} eksisterer allerede")
+    doc = {
+        "_id": payload.park_id,
+        "name": payload.name,
+        "region": payload.region,
+        "lat": payload.lat,
+        "lng": payload.lng,
+        "turbine_count": 0,
+    }
+    await db.parks().insert_one(doc)
+    logger.info("Park oprettet: %s (%s, %s)", payload.park_id, payload.name, payload.region)
+    return doc
+
+
 @app.get("/parks", response_model=list[Park], tags=["parks"])
 async def list_parks():
-    return [p async for p in db.parks().find().sort("_id", 1)]
+    pipeline = _PARK_WITH_COUNT_PIPELINE + [{"$sort": {"_id": 1}}]
+    return [p async for p in db.parks().aggregate(pipeline)]
 
 
 @app.get("/parks/{park_id}", response_model=Park, tags=["parks"])
 async def get_park(park_id: str):
-    doc = await db.parks().find_one({"_id": park_id})
-    if not doc:
+    pipeline = [{"$match": {"_id": park_id}}] + _PARK_WITH_COUNT_PIPELINE
+    rows = [p async for p in db.parks().aggregate(pipeline)]
+    if not rows:
         raise HTTPException(404, f"Park {park_id} not found")
-    return doc
+    return rows[0]
+
+
+@app.delete("/parks/{park_id}", status_code=204, tags=["parks"])
+async def delete_park(park_id: str):
+    """Slet en park + cascade alle dens devices, metrics og alerts."""
+    park = await db.parks().find_one({"_id": park_id})
+    if not park:
+        raise HTTPException(404, f"Park {park_id} not found")
+
+    devices_deleted = (await db.devices().delete_many({"park_id": park_id})).deleted_count
+    metrics_deleted = (await db.metrics().delete_many({"park_id": park_id})).deleted_count
+    alerts_deleted = (await db.alerts().delete_many({"park_id": park_id})).deleted_count
+    await db.parks().delete_one({"_id": park_id})
+
+    logger.info(
+        "Park slettet: %s (cascade: %d devices, %d metrics, %d alerts)",
+        park_id, devices_deleted, metrics_deleted, alerts_deleted,
+    )
 
 
 @app.get("/parks/{park_id}/devices", response_model=list[DeviceStatus], tags=["parks"])
 async def devices_in_park(park_id: str):
+    if not await db.parks().find_one({"_id": park_id}):
+        raise HTTPException(404, f"Park {park_id} not found")
     return [d async for d in db.devices().find({"park_id": park_id}).sort("_id", 1)]
+
+
+@app.post(
+    "/parks/{park_id}/devices",
+    response_model=DeviceStatus,
+    status_code=201,
+    tags=["parks"],
+)
+async def create_device(park_id: str, payload: DeviceCreate):
+    """Kunde registrerer en ny IoT-enhed (mølle) på en eksisterende park."""
+    if not await db.parks().find_one({"_id": park_id}):
+        raise HTTPException(404, f"Park {park_id} not found — registrér den først")
+    if await db.devices().find_one({"_id": payload.device_id}):
+        raise HTTPException(409, f"Device {payload.device_id} eksisterer allerede")
+
+    doc = {
+        "_id": payload.device_id,
+        "park_id": park_id,
+        "wind_turbine_id": payload.wind_turbine_id,
+        "firmware_version": payload.firmware_version,
+        "battery_level": payload.battery_level,
+        "signal_strength": payload.signal_strength,
+        "last_error_code": payload.last_error_code,
+        "last_ping": datetime.now(timezone.utc).replace(microsecond=0),
+    }
+    await db.devices().insert_one(doc)
+    logger.info("Device oprettet: %s på park %s", payload.device_id, park_id)
+    return doc
 
 
 # --- Devices -----------------------------------------------------------------
@@ -128,6 +208,20 @@ async def get_device(device_id: str):
     if not doc:
         raise HTTPException(404, f"Device {device_id} not found")
     return doc
+
+
+@app.delete("/devices/{device_id}", status_code=204, tags=["devices"])
+async def delete_device(device_id: str):
+    """Slet en device + cascade dens metrics og alerts."""
+    if not await db.devices().find_one({"_id": device_id}):
+        raise HTTPException(404, f"Device {device_id} not found")
+    metrics_deleted = (await db.metrics().delete_many({"device_id": device_id})).deleted_count
+    alerts_deleted = (await db.alerts().delete_many({"device_id": device_id})).deleted_count
+    await db.devices().delete_one({"_id": device_id})
+    logger.info(
+        "Device slettet: %s (cascade: %d metrics, %d alerts)",
+        device_id, metrics_deleted, alerts_deleted,
+    )
 
 
 # --- Metrics -----------------------------------------------------------------
@@ -155,33 +249,63 @@ async def upload_metric(payload: MetricIn):
         logger.warning("Afvist måling fra ukendt device_id=%s", payload.device_id)
         raise HTTPException(400, f"Unknown device_id: {payload.device_id}")
 
+    server_ts = datetime.now(timezone.utc).replace(microsecond=0)
+    payload_dict = payload.model_dump(exclude={"timestamp"})
     doc = {
-        **payload.model_dump(),
+        **payload_dict,
         "park_id": device["park_id"],
-        "timestamp": datetime.now(timezone.utc).replace(microsecond=0),
+        "timestamp": payload.timestamp or server_ts,
     }
     await db.metrics().insert_one(doc)
     await db.devices().update_one(
-        {"_id": payload.device_id}, {"$set": {"last_ping": doc["timestamp"]}}
+        {"_id": payload.device_id}, {"$set": {"last_ping": server_ts}}
     )
     await alerts_service.evaluate_and_persist([doc])
     return doc
 
 
-# --- Managed Services monitoring --------------------------------------------
+@app.post("/metrics/bulk", status_code=201, tags=["metrics"])
+async def upload_metrics_bulk(payload: MetricBulk) -> dict:
+    """Batch-upload — for IoT-gateways der buffrer målinger.
 
-@app.get("/monitoring/simulator", tags=["monitoring"])
-async def simulator_status():
-    s = simulator.status
-    return {
-        "running": s.running,
-        "interval_seconds": s.interval_seconds,
-        "ticks": s.ticks,
-        "rows_inserted": s.rows_inserted,
-        "device_count": s.device_count,
-        "last_tick_at": s.last_tick_at,
-        "last_error": s.last_error,
+    Validerer alle device_ids op-front, afviser hele batchen ved ukendte ids.
+    Threshold-check kører på hele batchen i ét pass.
+    """
+    device_ids = list({m.device_id for m in payload.metrics})
+    devices = {
+        d["_id"]: d
+        async for d in db.devices().find(
+            {"_id": {"$in": device_ids}}, projection={"_id": 1, "park_id": 1}
+        )
     }
+    unknown = [d for d in device_ids if d not in devices]
+    if unknown:
+        raise HTTPException(400, f"Unknown device_ids: {unknown}")
+
+    server_ts = datetime.now(timezone.utc).replace(microsecond=0)
+    docs = [
+        {
+            **m.model_dump(exclude={"timestamp"}),
+            "park_id": devices[m.device_id]["park_id"],
+            # Brug klient-leveret timestamp hvis sat (IoT-gateway der buffrer);
+            # ellers server-tid. last_ping bruger altid server-tid.
+            "timestamp": m.timestamp or server_ts,
+        }
+        for m in payload.metrics
+    ]
+    await db.metrics().insert_many(docs, ordered=False)
+    await db.devices().update_many(
+        {"_id": {"$in": device_ids}}, {"$set": {"last_ping": server_ts}}
+    )
+    alerts_created = await alerts_service.evaluate_and_persist(docs)
+    return {
+        "metrics_inserted": len(docs),
+        "alerts_created": alerts_created,
+        "timestamp": server_ts,
+    }
+
+
+# --- Managed Services monitoring --------------------------------------------
 
 
 async def _active_alerts_data(park_id: str | None = None) -> list[dict]:
@@ -368,6 +492,31 @@ async def stats() -> dict:
             "last_24h": anomalies_24h,
         },
     }
+
+
+@app.get(
+    "/monitoring/notifications",
+    response_model=list[NotificationRecord],
+    tags=["monitoring"],
+)
+async def notifications_history(
+    severity: str | None = Query(None, description="Filter: CRITICAL, WARNING"),
+    status: str | None = Query(None, description="Filter: SENT, FAILED, SKIPPED"),
+    limit: int = Query(50, ge=1, le=500),
+):
+    """Historik over operator-notifikations dispatches (webhook resultater)."""
+    q: dict = {}
+    if severity:
+        q["severity"] = severity
+    if status:
+        q["status"] = status
+    cursor = (
+        db.notifications()
+        .find(q, projection={"_id": 0})
+        .sort("dispatched_at", -1)
+        .limit(limit)
+    )
+    return [n async for n in cursor]
 
 
 @app.get("/monitoring/park-summary", tags=["monitoring"])

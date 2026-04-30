@@ -48,6 +48,11 @@ def alerts():
     return database()["alerts"]
 
 
+def notifications():
+    """Operator-notifikations-historik (webhook dispatch attempts)."""
+    return database()["notifications"]
+
+
 METRIC_RETENTION_DAYS = int(os.getenv("METRIC_RETENTION_DAYS", "30"))
 
 
@@ -57,10 +62,14 @@ async def init_indexes() -> None:
     await metrics().create_index([("park_id", 1), ("timestamp", -1)])
     await alerts().create_index([("device_id", 1), ("timestamp", -1)])
     await alerts().create_index([("park_id", 1), ("timestamp", -1)])
+    await notifications().create_index([("dispatched_at", -1)])
     # TTL-indekser: ryd op automatisk efter METRIC_RETENTION_DAYS
     ttl_seconds = METRIC_RETENTION_DAYS * 24 * 60 * 60
     await metrics().create_index("timestamp", expireAfterSeconds=ttl_seconds)
     await alerts().create_index("timestamp", expireAfterSeconds=ttl_seconds)
+    await notifications().create_index(
+        "dispatched_at", expireAfterSeconds=ttl_seconds
+    )
 
 
 async def ping() -> bool:
