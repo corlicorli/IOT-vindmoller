@@ -1,0 +1,16 @@
+# Auto-provisioneret datasource: Grafana polliner vores FastAPI via Infinity-plugin.
+# Behandler API'et som JSON over HTTP — ingen direkte DB-kobling.
+
+apiVersion: 1
+
+datasources:
+  - name: Wind Farm API
+    type: yesoreyeram-infinity-datasource
+    uid: windfarm-api
+    access: proxy
+    url: http://api:8000
+    isDefault: true
+    editable: true
+    jsonData:
+      auth_method: none
+      timeout: 10

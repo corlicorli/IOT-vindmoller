@@ -17,6 +17,7 @@ htmlcov
 *.sqlite
 docs
 tests
+grafana
 README.md
 docker-compose.yml
 .dockerignore

@@ -2,7 +2,7 @@
 
 REST-API til overvågning af 3 fiktive vindmølleparker for **Intelligent IoT Solutions A/S** (KEA 6. semester, Afleveringsopgave 2 — Teknisk MVP).
 
-**Stack:** FastAPI · MongoDB · Motor (async driver) · Docker · GitHub Actions CI
+**Stack:** FastAPI · MongoDB · Motor (async driver) · Docker · Grafana · GitHub Actions CI
 
 [![CI](https://github.com/corlicorli/IOT-vindmoller/actions/workflows/ci.yml/badge.svg)](https://github.com/corlicorli/IOT-vindmoller/actions/workflows/ci.yml)
 
@@ -30,8 +30,9 @@ Lag 3: Trend-forudsigelse Lineær regression       ─► /monitoring/prediction
 - Realistisk turbine-fysik med scenarie-baseret slidtage (overheat_drift +2°C/dag, aging +0.7°C/dag)
 - Domain event-log: `Anomaly Detected` events persisteres separat med severity og rule
 - **Trend-baseret forudsigelse**: lineær regression giver ETA til threshold-brud + risk-klassifikation
+- **Grafana-dashboard** auto-provisioneret: live-overblik over alle 3 PdM-lag på én side
 - TTL-indekser — metrics og alerts slettes automatisk efter 30 dage
-- 35 automatiserede tests (22 unit + 13 integration) kørt i GitHub Actions CI
+- 37 automatiserede tests (22 unit + 15 integration) kørt i GitHub Actions CI
 
 ## Krav
 
@@ -41,22 +42,28 @@ Lag 3: Trend-forudsigelse Lineær regression       ─► /monitoring/prediction
 
 ### Vej A — Docker (anbefalet, ~30 sekunder)
 
-Hele stacken (API + MongoDB + mongo-express UI) startes med én kommando:
+Hele stacken (API + MongoDB + mongo-express + Grafana) startes med én kommando:
 
 ```bash
 git clone https://github.com/corlicorli/IOT-vindmoller.git
 cd IOT-vindmoller
 docker compose up --build -d
 
-# Seed databasen med 3 parker, 18 møller og 1 dags historik
-docker compose exec api python seed.py --days 1 --interval 30
+# Seed databasen med 14 dages historik (giver Grafana-dashboardet meningsfulde trends)
+docker compose exec api python seed.py --days 14 --interval 30
+
+# Genstart api så simulator picker enheder op
+docker restart iot-api
 ```
 
 | Service | URL | Til hvad |
 |---|---|---|
+| **Grafana-dashboard** | **http://localhost:3001/d/wind-farm-ops** | **Live overblik — alle 3 PdM-lag** |
 | API + Swagger UI | http://localhost:8000/docs | Test endpoints |
 | mongo-express | http://localhost:8081 | Browse 4 collections live |
 | MongoDB | `localhost:27017` | Direkte mongosh-adgang |
+
+Grafana er auto-provisioneret med anonym viewer-adgang — ingen login nødvendig.
 
 ### Vej B — Lokal Python + Atlas
 
@@ -82,7 +89,7 @@ pip install -r requirements-dev.txt
 pytest -v
 ```
 
-Forventet output: `35 passed`. Tests kræver en kørende MongoDB; integration-tests skipper pænt hvis intet er tilgængeligt på `localhost:27017`. Den nemmeste vej er at lade Docker-stacken stå oppe mens man kører pytest.
+Forventet output: `37 passed`. Tests kræver en kørende MongoDB; integration-tests skipper pænt hvis intet er tilgængeligt på `localhost:27017`. Den nemmeste vej er at lade Docker-stacken stå oppe mens man kører pytest.
 
 CI kører automatisk ved push til `main` — se [Actions-fanen](https://github.com/corlicorli/IOT-vindmoller/actions).
 
@@ -146,6 +153,7 @@ Eksempel-output fra `/monitoring/predictions` efter `seed.py --days 14`:
 | `/monitoring/alerts/history` | GET | **Lag 2** — persisteret event-log af alle Anomaly Detected events |
 | **`/monitoring/predictions`** | **GET** | **Lag 3 — trend-baseret forudsigelse pr. mølle med ETA og risk** |
 | **`/monitoring/predictions/{id}`** | **GET** | **Lag 3 for én mølle** |
+| **`/monitoring/stats`** | **GET** | **Aggregeret status — counters fra alle 3 lag (drives Grafana)** |
 | `/monitoring/park-summary` | GET | Totaler pr. park (effekt, gns. vind, max temp) |
 | `/monitoring/simulator` | GET | Status på live-simulatoren |
 | `/docs` | GET | Auto-genereret Swagger UI |
@@ -185,9 +193,10 @@ models.py          — Pydantic-skemaer for I/O-validering
 physics.py         — Turbine-fysik og driftsscenarier (incl. lineær drift over tid)
 simulator.py       — Live-tikker som baggrundstask
 seed.py            — Bootstrap historiske data
-tests/             — pytest-suite (35 tests: unit + integration)
+tests/             — pytest-suite (37 tests: unit + integration)
 Dockerfile         — Production-image (non-root, healthcheck)
-docker-compose.yml — Hele stacken (api + mongo + mongo-express)
+docker-compose.yml — Hele stacken (api + mongo + mongo-express + grafana)
+grafana/           — Auto-provisioneret datasource + Wind Farm Operations dashboard
 .github/workflows/ — CI: pytest + Docker build
 ```
 
@@ -202,4 +211,5 @@ docker-compose.yml — Hele stacken (api + mongo + mongo-express)
 | REST API tilgås remote (IoT device) | FastAPI på `0.0.0.0:8000`, dokumenteret i `/docs` |
 | Domæne-logik (validering, hændelse, beslutning) | Pydantic-validering, anomaly-event, severity + risk-klassifikation |
 | Persistering af domain events i separat DB | MongoDB med 4 collections, 2 dedikerede event-logs |
+| Kvalitet og drift — monitorering | Grafana-dashboard på `:3001` med live counters, predictions-tabel og event-log |
 | CI/CD med GitHub/Docker | GitHub Actions: pytest + Docker-build på hver push |

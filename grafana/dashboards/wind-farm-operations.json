@@ -1,0 +1,521 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Enheder online",
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "windfarm-api"},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "windfarm-api"},
+          "type": "json",
+          "source": "url",
+          "url": "/monitoring/stats",
+          "url_options": {"method": "GET", "data": ""},
+          "format": "table",
+          "root_selector": "",
+          "columns": [{"selector": "devices", "text": "Enheder", "type": "number"}],
+          "parser": "backend"
+        }
+      ],
+      "options": {
+        "reduceOptions": {"values": false, "calcs": ["lastNotNull"], "fields": ""},
+        "orientation": "auto",
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "fixed", "fixedColor": "blue"},
+          "unit": "short",
+          "decimals": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "CRITICAL alarmer (>75°C)",
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "windfarm-api"},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "windfarm-api"},
+          "type": "json",
+          "source": "url",
+          "url": "/monitoring/stats",
+          "url_options": {"method": "GET", "data": ""},
+          "format": "table",
+          "root_selector": "active_alerts",
+          "columns": [{"selector": "critical", "text": "CRITICAL", "type": "number"}],
+          "parser": "backend"
+        }
+      ],
+      "options": {
+        "reduceOptions": {"values": false, "calcs": ["lastNotNull"], "fields": ""},
+        "orientation": "auto",
+        "textMode": "value",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "red", "value": 1}
+            ]
+          },
+          "unit": "short",
+          "decimals": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "WARNING alarmer (>70°C)",
+      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "windfarm-api"},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "windfarm-api"},
+          "type": "json",
+          "source": "url",
+          "url": "/monitoring/stats",
+          "url_options": {"method": "GET", "data": ""},
+          "format": "table",
+          "root_selector": "active_alerts",
+          "columns": [{"selector": "warning", "text": "WARNING", "type": "number"}],
+          "parser": "backend"
+        }
+      ],
+      "options": {
+        "reduceOptions": {"values": false, "calcs": ["lastNotNull"], "fields": ""},
+        "orientation": "auto",
+        "textMode": "value",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 1}
+            ]
+          },
+          "unit": "short",
+          "decimals": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "HIGH-risk predictions (lag 3)",
+      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "windfarm-api"},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "windfarm-api"},
+          "type": "json",
+          "source": "url",
+          "url": "/monitoring/stats",
+          "url_options": {"method": "GET", "data": ""},
+          "format": "table",
+          "root_selector": "predictions",
+          "columns": [{"selector": "high_risk", "text": "HIGH risk", "type": "number"}],
+          "parser": "backend"
+        }
+      ],
+      "options": {
+        "reduceOptions": {"values": false, "calcs": ["lastNotNull"], "fields": ""},
+        "orientation": "auto",
+        "textMode": "value",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "orange", "value": 1},
+              {"color": "red", "value": 3}
+            ]
+          },
+          "unit": "short",
+          "decimals": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "MEDIUM-risk",
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 4},
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "windfarm-api"},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "windfarm-api"},
+          "type": "json",
+          "source": "url",
+          "url": "/monitoring/stats",
+          "url_options": {"method": "GET", "data": ""},
+          "format": "table",
+          "root_selector": "predictions",
+          "columns": [{"selector": "medium_risk", "text": "MEDIUM risk", "type": "number"}],
+          "parser": "backend"
+        }
+      ],
+      "options": {
+        "reduceOptions": {"values": false, "calcs": ["lastNotNull"], "fields": ""},
+        "orientation": "auto",
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "fixed", "fixedColor": "yellow"},
+          "unit": "short",
+          "decimals": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "LOW-risk (stabile)",
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 4},
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "windfarm-api"},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "windfarm-api"},
+          "type": "json",
+          "source": "url",
+          "url": "/monitoring/stats",
+          "url_options": {"method": "GET", "data": ""},
+          "format": "table",
+          "root_selector": "predictions",
+          "columns": [{"selector": "low_risk", "text": "LOW risk", "type": "number"}],
+          "parser": "backend"
+        }
+      ],
+      "options": {
+        "reduceOptions": {"values": false, "calcs": ["lastNotNull"], "fields": ""},
+        "orientation": "auto",
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "fixed", "fixedColor": "green"},
+          "unit": "short",
+          "decimals": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "Anomaly events sidste 24t",
+      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 4},
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "windfarm-api"},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "windfarm-api"},
+          "type": "json",
+          "source": "url",
+          "url": "/monitoring/stats",
+          "url_options": {"method": "GET", "data": ""},
+          "format": "table",
+          "root_selector": "events",
+          "columns": [{"selector": "last_24h", "text": "events 24h", "type": "number"}],
+          "parser": "backend"
+        }
+      ],
+      "options": {
+        "reduceOptions": {"values": false, "calcs": ["lastNotNull"], "fields": ""},
+        "orientation": "auto",
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "fixed", "fixedColor": "purple"},
+          "unit": "short",
+          "decimals": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 8,
+      "type": "stat",
+      "title": "Total events (event-log)",
+      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 4},
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "windfarm-api"},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "windfarm-api"},
+          "type": "json",
+          "source": "url",
+          "url": "/monitoring/stats",
+          "url_options": {"method": "GET", "data": ""},
+          "format": "table",
+          "root_selector": "events",
+          "columns": [{"selector": "total", "text": "Total", "type": "number"}],
+          "parser": "backend"
+        }
+      ],
+      "options": {
+        "reduceOptions": {"values": false, "calcs": ["lastNotNull"], "fields": ""},
+        "orientation": "auto",
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "fixed", "fixedColor": "blue"},
+          "unit": "short",
+          "decimals": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 9,
+      "type": "table",
+      "title": "Park-summary (live)",
+      "gridPos": {"h": 7, "w": 24, "x": 0, "y": 8},
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "windfarm-api"},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "windfarm-api"},
+          "type": "json",
+          "source": "url",
+          "url": "/monitoring/park-summary",
+          "url_options": {"method": "GET", "data": ""},
+          "format": "table",
+          "root_selector": "",
+          "columns": [
+            {"selector": "park_id", "text": "Park-ID", "type": "string"},
+            {"selector": "park_name", "text": "Navn", "type": "string"},
+            {"selector": "region", "text": "Region", "type": "string"},
+            {"selector": "device_count", "text": "Møller", "type": "number"},
+            {"selector": "total_power_kw", "text": "Total effekt (kW)", "type": "number"},
+            {"selector": "avg_wind_ms", "text": "Gns. vind (m/s)", "type": "number"},
+            {"selector": "avg_temp_c", "text": "Gns. temp (°C)", "type": "number"},
+            {"selector": "max_temp_c", "text": "Max temp (°C)", "type": "number"}
+          ],
+          "parser": "backend"
+        }
+      ],
+      "options": {"showHeader": true, "footer": {"show": false}, "cellHeight": "sm"},
+      "fieldConfig": {
+        "defaults": {"custom": {"align": "auto", "filterable": true}},
+        "overrides": [
+          {
+            "matcher": {"id": "byName", "options": "Max temp (°C)"},
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {"type": "color-background", "mode": "gradient"}
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {"color": "green", "value": null},
+                    {"color": "yellow", "value": 60},
+                    {"color": "orange", "value": 70},
+                    {"color": "red", "value": 75}
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": 10,
+      "type": "table",
+      "title": "PdM lag 3 — Trend-baserede forudsigelser pr. mølle",
+      "gridPos": {"h": 11, "w": 24, "x": 0, "y": 15},
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "windfarm-api"},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "windfarm-api"},
+          "type": "json",
+          "source": "url",
+          "url": "/monitoring/predictions",
+          "url_options": {"method": "GET", "data": ""},
+          "format": "table",
+          "root_selector": "",
+          "columns": [
+            {"selector": "device_id", "text": "Mølle", "type": "string"},
+            {"selector": "park_id", "text": "Park", "type": "string"},
+            {"selector": "risk", "text": "Risiko", "type": "string"},
+            {"selector": "current_temp_c", "text": "Temp nu (°C)", "type": "number"},
+            {"selector": "baseline_mean_c", "text": "Baseline (°C)", "type": "number"},
+            {"selector": "trend_c_per_day", "text": "Trend (°C/dag)", "type": "number"},
+            {"selector": "days_until_breach", "text": "ETA (dage)", "type": "number"},
+            {"selector": "datapoints", "text": "Datapkt.", "type": "number"}
+          ],
+          "parser": "backend"
+        }
+      ],
+      "options": {"showHeader": true, "footer": {"show": false}, "cellHeight": "sm"},
+      "fieldConfig": {
+        "defaults": {"custom": {"align": "auto", "filterable": true}},
+        "overrides": [
+          {
+            "matcher": {"id": "byName", "options": "Risiko"},
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {"type": "color-background", "mode": "basic"}
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {"type": "value", "options": {"HIGH": {"color": "red", "index": 0}}},
+                  {"type": "value", "options": {"MEDIUM": {"color": "orange", "index": 1}}},
+                  {"type": "value", "options": {"LOW": {"color": "green", "index": 2}}}
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {"id": "byName", "options": "Trend (°C/dag)"},
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {"type": "color-text"}
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {"color": "green", "value": null},
+                    {"color": "yellow", "value": 0.5},
+                    {"color": "red", "value": 1.0}
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": 11,
+      "type": "table",
+      "title": "Anomaly Detected — event-log (lag 2)",
+      "gridPos": {"h": 11, "w": 24, "x": 0, "y": 26},
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "windfarm-api"},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "windfarm-api"},
+          "type": "json",
+          "source": "url",
+          "url": "/monitoring/alerts/history?limit=20",
+          "url_options": {"method": "GET", "data": ""},
+          "format": "table",
+          "root_selector": "",
+          "columns": [
+            {"selector": "timestamp", "text": "Tidspunkt", "type": "timestamp"},
+            {"selector": "device_id", "text": "Mølle", "type": "string"},
+            {"selector": "park_id", "text": "Park", "type": "string"},
+            {"selector": "gearbox_temp_c", "text": "Temp (°C)", "type": "number"},
+            {"selector": "severity", "text": "Severity", "type": "string"},
+            {"selector": "rule", "text": "Regel", "type": "string"},
+            {"selector": "event_type", "text": "Event", "type": "string"}
+          ],
+          "parser": "backend"
+        }
+      ],
+      "options": {"showHeader": true, "footer": {"show": false}, "cellHeight": "sm"},
+      "fieldConfig": {
+        "defaults": {"custom": {"align": "auto", "filterable": true}},
+        "overrides": [
+          {
+            "matcher": {"id": "byName", "options": "Severity"},
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {"type": "color-background", "mode": "basic"}
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {"type": "value", "options": {"CRITICAL": {"color": "red", "index": 0}}},
+                  {"type": "value", "options": {"WARNING": {"color": "yellow", "index": 1}}}
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "refresh": "10s",
+  "schemaVersion": 39,
+  "tags": ["pdm", "iot", "wind-farm"],
+  "templating": {"list": []},
+  "time": {"from": "now-6h", "to": "now"},
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Wind Farm Operations",
+  "uid": "wind-farm-ops",
+  "version": 1,
+  "weekStart": ""
+}

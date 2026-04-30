@@ -1,0 +1,15 @@
+# Auto-import af alle JSON-dashboards i /var/lib/grafana/dashboards.
+
+apiVersion: 1
+
+providers:
+  - name: 'Wind Farm Dashboards'
+    orgId: 1
+    folder: ''
+    type: file
+    disableDeletion: false
+    allowUiUpdates: true
+    updateIntervalSeconds: 10
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

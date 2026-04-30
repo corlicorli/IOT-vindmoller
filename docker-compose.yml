@@ -37,5 +37,29 @@ services:
     depends_on:
       - mongo
 
+  grafana:
+    image: grafana/grafana:11.3.0
+    container_name: iot-grafana
+    restart: unless-stopped
+    ports:
+      # 3001 for at undgå konflikt med andre lokale dev-servere på 3000
+      - "3001:3000"
+    environment:
+      # Anonym adgang — ingen login-form, alle får Admin-rolle (kun til lokal demo)
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_AUTH_BASIC_ENABLED: "false"
+      GF_USERS_DEFAULT_THEME: dark
+      # Auto-installer Infinity-plugin der polliner JSON-endpoints
+      GF_INSTALL_PLUGINS: yesoreyeram-infinity-datasource
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - api
+
 volumes:
   mongo_data:
+  grafana_data:
