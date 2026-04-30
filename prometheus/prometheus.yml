@@ -1,0 +1,13 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  # Wind Farm API — selv-instrumenteret via prometheus-fastapi-instrumentator
+  - job_name: 'wind-farm-api'
+    metrics_path: /observability/metrics
+    static_configs:
+      - targets: ['api:8000']
+        labels:
+          service: 'wind-farm-api'
+          environment: 'docker-compose'

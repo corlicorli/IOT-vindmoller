@@ -1,0 +1,345 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Requests/sec (sidste 5 min)",
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus-iot"},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "prometheus", "uid": "prometheus-iot"},
+          "expr": "sum(rate(http_requests_total{handler!~\"/observability/metrics|/health\"}[5m]))",
+          "legendFormat": "req/s",
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": {"values": false, "calcs": ["lastNotNull"], "fields": ""},
+        "orientation": "auto",
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "fixed", "fixedColor": "blue"},
+          "unit": "reqps",
+          "decimals": 2
+        }
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Total requests håndteret",
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus-iot"},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "prometheus", "uid": "prometheus-iot"},
+          "expr": "sum(http_requests_total{handler!~\"/observability/metrics|/health\"})",
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": {"values": false, "calcs": ["lastNotNull"], "fields": ""},
+        "orientation": "auto",
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "fixed", "fixedColor": "green"},
+          "unit": "short",
+          "decimals": 0
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Error rate (4xx + 5xx)",
+      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus-iot"},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "prometheus", "uid": "prometheus-iot"},
+          "expr": "sum(rate(http_requests_total{status=~\"4..|5..\"}[5m])) / sum(rate(http_requests_total[5m]))",
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": {"values": false, "calcs": ["lastNotNull"], "fields": ""},
+        "orientation": "auto",
+        "textMode": "value",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 0.05},
+              {"color": "red", "value": 0.10}
+            ]
+          },
+          "unit": "percentunit",
+          "decimals": 2
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "P95 latency",
+      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus-iot"},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "prometheus", "uid": "prometheus-iot"},
+          "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))",
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": {"values": false, "calcs": ["lastNotNull"], "fields": ""},
+        "orientation": "auto",
+        "textMode": "value",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 0.5},
+              {"color": "red", "value": 1.0}
+            ]
+          },
+          "unit": "s",
+          "decimals": 3
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Requests/sec pr. endpoint",
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 4},
+      "datasource": {"type": "prometheus", "uid": "prometheus-iot"},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "prometheus", "uid": "prometheus-iot"},
+          "expr": "sum(rate(http_requests_total{handler!~\"/observability/metrics|/health\"}[1m])) by (handler)",
+          "legendFormat": "{{handler}}"
+        }
+      ],
+      "options": {
+        "tooltip": {"mode": "multi", "sort": "desc"},
+        "legend": {"showLegend": true, "displayMode": "list", "placement": "bottom"}
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never"
+          },
+          "unit": "reqps"
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Latency-percentiler (p50 / p95 / p99)",
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 4},
+      "datasource": {"type": "prometheus", "uid": "prometheus-iot"},
+      "targets": [
+        {
+          "refId": "p50",
+          "datasource": {"type": "prometheus", "uid": "prometheus-iot"},
+          "expr": "histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket[1m])) by (le))",
+          "legendFormat": "p50"
+        },
+        {
+          "refId": "p95",
+          "datasource": {"type": "prometheus", "uid": "prometheus-iot"},
+          "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[1m])) by (le))",
+          "legendFormat": "p95"
+        },
+        {
+          "refId": "p99",
+          "datasource": {"type": "prometheus", "uid": "prometheus-iot"},
+          "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[1m])) by (le))",
+          "legendFormat": "p99"
+        }
+      ],
+      "options": {
+        "tooltip": {"mode": "multi", "sort": "desc"},
+        "legend": {"showLegend": true, "displayMode": "table", "placement": "bottom", "values": ["mean", "max"]}
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never"
+          },
+          "unit": "s",
+          "decimals": 3
+        }
+      }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Status code-fordeling",
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 13},
+      "datasource": {"type": "prometheus", "uid": "prometheus-iot"},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "prometheus", "uid": "prometheus-iot"},
+          "expr": "sum(rate(http_requests_total{handler!~\"/observability/metrics|/health\"}[1m])) by (status)",
+          "legendFormat": "{{status}}"
+        }
+      ],
+      "options": {
+        "tooltip": {"mode": "multi", "sort": "desc"},
+        "legend": {"showLegend": true, "displayMode": "table", "placement": "bottom"}
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 70,
+            "showPoints": "never",
+            "stacking": {"mode": "normal"}
+          },
+          "unit": "reqps"
+        },
+        "overrides": [
+          {
+            "matcher": {"id": "byRegexp", "options": "^2.*"},
+            "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "green"}}]
+          },
+          {
+            "matcher": {"id": "byRegexp", "options": "^4.*"},
+            "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "yellow"}}]
+          },
+          {
+            "matcher": {"id": "byRegexp", "options": "^5.*"},
+            "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}}]
+          }
+        ]
+      }
+    },
+    {
+      "id": 8,
+      "type": "table",
+      "title": "Top endpoints (samlet requests)",
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 13},
+      "datasource": {"type": "prometheus", "uid": "prometheus-iot"},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "prometheus", "uid": "prometheus-iot"},
+          "expr": "topk(10, sum(http_requests_total{handler!~\"/observability/metrics|/health\"}) by (handler, method))",
+          "instant": true,
+          "format": "table"
+        }
+      ],
+      "options": {"showHeader": true, "footer": {"show": false}, "cellHeight": "sm"},
+      "fieldConfig": {
+        "defaults": {"custom": {"align": "auto"}},
+        "overrides": [
+          {
+            "matcher": {"id": "byName", "options": "Time"},
+            "properties": [{"id": "custom.hidden", "value": true}]
+          }
+        ]
+      }
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Memory (RSS) — process",
+      "gridPos": {"h": 6, "w": 12, "x": 0, "y": 22},
+      "datasource": {"type": "prometheus", "uid": "prometheus-iot"},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "prometheus", "uid": "prometheus-iot"},
+          "expr": "process_resident_memory_bytes{job=\"wind-farm-api\"}",
+          "legendFormat": "RSS"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 10},
+          "unit": "bytes"
+        }
+      }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "CPU-tid",
+      "gridPos": {"h": 6, "w": 12, "x": 12, "y": 22},
+      "datasource": {"type": "prometheus", "uid": "prometheus-iot"},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "prometheus", "uid": "prometheus-iot"},
+          "expr": "rate(process_cpu_seconds_total{job=\"wind-farm-api\"}[1m])",
+          "legendFormat": "CPU/s"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 10},
+          "unit": "percentunit"
+        }
+      }
+    }
+  ],
+  "refresh": "5s",
+  "schemaVersion": 39,
+  "tags": ["observability", "api", "prometheus"],
+  "templating": {"list": []},
+  "time": {"from": "now-15m", "to": "now"},
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "API Observability",
+  "uid": "api-observability",
+  "version": 1,
+  "weekStart": ""
+}

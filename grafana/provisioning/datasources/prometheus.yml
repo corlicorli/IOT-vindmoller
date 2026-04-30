@@ -1,0 +1,15 @@
+# Auto-provisioneret Prometheus-datasource for API observability dashboard.
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    uid: prometheus-iot
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: false
+    editable: true
+    jsonData:
+      timeInterval: "5s"
+      httpMethod: "POST"
