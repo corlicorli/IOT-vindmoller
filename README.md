@@ -127,6 +127,16 @@ curl http://localhost:8000/monitoring/predictions/IOT-DK-ALB-002 | jq
 curl http://localhost:8000/monitoring/park-summary | jq
 ```
 
+### Postman-collection
+
+Vil du teste det hele i et UI? Importér [`postman/wind-farm-api.postman_collection.json`](postman/wind-farm-api.postman_collection.json) i Postman:
+
+1. Postman → **Import** → vælg filen
+2. Kør requests fra mappen "**2. Demo-flow**" sekventielt med ~12s pause så Grafana auto-refresher
+3. Skift `baseUrl` collection-variablen hvis API'et kører på en anden host
+
+Indeholder 17 requests dækkende health-tjek, alle 3 PdM-lag, samt edge-cases (ukendt device, validering).
+
 Eksempel-output fra `/monitoring/predictions` efter `seed.py --days 14`:
 
 ```json
@@ -197,6 +207,7 @@ tests/             — pytest-suite (37 tests: unit + integration)
 Dockerfile         — Production-image (non-root, healthcheck)
 docker-compose.yml — Hele stacken (api + mongo + mongo-express + grafana)
 grafana/           — Auto-provisioneret datasource + Wind Farm Operations dashboard
+postman/           — Postman-collection med 17 demo-requests
 .github/workflows/ — CI: pytest + Docker build
 ```
 

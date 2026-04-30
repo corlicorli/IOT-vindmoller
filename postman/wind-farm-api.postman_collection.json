@@ -1,0 +1,362 @@
+{
+  "info": {
+    "_postman_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "name": "Wind Farm API — IOT Vindmøller",
+    "description": "Demo-collection til Intelligent IoT Solutions A/S — Predictive Maintenance MVP.\n\nAlle 3 PdM-lag dækket:\n- Lag 1: Dataindsamling (POST /metrics)\n- Lag 2: Anomaly Detection (alerts)\n- Lag 3: Trend-forudsigelse (predictions)\n\nÆndr `baseUrl` collection-variablen hvis API'et kører på en anden host/port.\nDefault: http://localhost:8000",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "1. Setup — health & info",
+      "item": [
+        {
+          "name": "Health check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["health"]
+            },
+            "description": "Liveness-tjek. Returnerer {\"mongo\": true} hvis API kan tale med MongoDB."
+          },
+          "response": []
+        },
+        {
+          "name": "Service-metadata",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/",
+              "host": ["{{baseUrl}}"],
+              "path": [""]
+            },
+            "description": "Service-info uden credentials."
+          },
+          "response": []
+        },
+        {
+          "name": "List alle parker",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/parks",
+              "host": ["{{baseUrl}}"],
+              "path": ["parks"]
+            },
+            "description": "Returnerer de 3 vindmølleparker (Aalborg, Esbjerg, Thy)."
+          },
+          "response": []
+        },
+        {
+          "name": "List alle enheder",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/devices",
+              "host": ["{{baseUrl}}"],
+              "path": ["devices"]
+            },
+            "description": "Returnerer de 18 IoT-enheder (en pr. mølle) med firmware/batteri/error-kode."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "2. Demo-flow — Sensor Value Received → Anomaly Detected",
+      "description": "Kør disse i rækkefølge med ~12 sekunders mellemrum så Grafana når at refresh'e (10s auto-refresh).\n\nÅbn dashboardet på http://localhost:3001/d/wind-farm-ops mens du kører dem.",
+      "item": [
+        {
+          "name": "1) NORMAL måling (55°C — ingen anomali)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"device_id\": \"IOT-DK-ESB-002\",\n  \"wind_speed_ms\": 7,\n  \"power_output_kw\": 800,\n  \"rotor_rpm\": 10,\n  \"gearbox_temp_c\": 55\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/metrics",
+              "host": ["{{baseUrl}}"],
+              "path": ["metrics"]
+            },
+            "description": "Forventet: 201 Created. Ingen alarm udløses (55 < 70). Events-counter rører sig ikke."
+          },
+          "response": []
+        },
+        {
+          "name": "2) WARNING (72°C — første anomali)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"device_id\": \"IOT-DK-ESB-002\",\n  \"wind_speed_ms\": 12,\n  \"power_output_kw\": 2000,\n  \"rotor_rpm\": 14,\n  \"gearbox_temp_c\": 72\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/metrics",
+              "host": ["{{baseUrl}}"],
+              "path": ["metrics"]
+            },
+            "description": "Forventet: 201 Created + en ny WARNING-event i alerts-collection. Gul markering i dashboardets event-log."
+          },
+          "response": []
+        },
+        {
+          "name": "3) CRITICAL (82°C — alvorlig anomali)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"device_id\": \"IOT-DK-THY-002\",\n  \"wind_speed_ms\": 14,\n  \"power_output_kw\": 2400,\n  \"rotor_rpm\": 15,\n  \"gearbox_temp_c\": 82\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/metrics",
+              "host": ["{{baseUrl}}"],
+              "path": ["metrics"]
+            },
+            "description": "Forventet: 201 Created + CRITICAL-event (>75°C). Rød markering i event-log + CRITICAL-counter stiger."
+          },
+          "response": []
+        },
+        {
+          "name": "4) KATASTROFE (95°C — kør IKKE i produktion 😅)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"device_id\": \"IOT-DK-ALB-005\",\n  \"wind_speed_ms\": 15,\n  \"power_output_kw\": 2500,\n  \"rotor_rpm\": 16,\n  \"gearbox_temp_c\": 95\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/metrics",
+              "host": ["{{baseUrl}}"],
+              "path": ["metrics"]
+            },
+            "description": "Ekstrem anomali — viser at vores threshold-beslutning skalerer korrekt med severity-klassifikation."
+          },
+          "response": []
+        },
+        {
+          "name": "Edge case — ukendt device (skal afvises)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"device_id\": \"DOES-NOT-EXIST\",\n  \"wind_speed_ms\": 8,\n  \"power_output_kw\": 1500,\n  \"rotor_rpm\": 12,\n  \"gearbox_temp_c\": 55\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/metrics",
+              "host": ["{{baseUrl}}"],
+              "path": ["metrics"]
+            },
+            "description": "Forventet: 400 Bad Request. Demonstrerer domain-validering."
+          },
+          "response": []
+        },
+        {
+          "name": "Edge case — negativ vind (Pydantic afviser)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"device_id\": \"IOT-DK-ALB-001\",\n  \"wind_speed_ms\": -5,\n  \"power_output_kw\": 100,\n  \"rotor_rpm\": 5,\n  \"gearbox_temp_c\": 50\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/metrics",
+              "host": ["{{baseUrl}}"],
+              "path": ["metrics"]
+            },
+            "description": "Forventet: 422 Unprocessable Entity. Pydantic-validering på input-niveau."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "3. Monitoring — alle 3 PdM-lag",
+      "item": [
+        {
+          "name": "Aggregeret stats (driver Grafana-dashboard)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/monitoring/stats",
+              "host": ["{{baseUrl}}"],
+              "path": ["monitoring", "stats"]
+            },
+            "description": "Ét response med counters fra alle 3 lag. Bruges som datakilde for Grafanas stat-paneler."
+          },
+          "response": []
+        },
+        {
+          "name": "Lag 2 — aktive alarmer (live)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/monitoring/alerts",
+              "host": ["{{baseUrl}}"],
+              "path": ["monitoring", "alerts"]
+            },
+            "description": "Aggregation pipeline: seneste tilstand pr. mølle der overskrider threshold."
+          },
+          "response": []
+        },
+        {
+          "name": "Lag 2 — Anomaly Detected event-log",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/monitoring/alerts/history?limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["monitoring", "alerts", "history"],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "Persisterede domain events — nyeste øverst. Filtrerbar med ?park_id= og ?device_id=."
+          },
+          "response": []
+        },
+        {
+          "name": "Lag 3 — Trend-forudsigelser (alle møller)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/monitoring/predictions",
+              "host": ["{{baseUrl}}"],
+              "path": ["monitoring", "predictions"]
+            },
+            "description": "Lineær regression på sidste 7 dages temperatur pr. mølle. Sorteret med højest risiko først."
+          },
+          "response": []
+        },
+        {
+          "name": "Lag 3 — Trend-forudsigelse for én mølle",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/monitoring/predictions/IOT-DK-ALB-002",
+              "host": ["{{baseUrl}}"],
+              "path": ["monitoring", "predictions", "IOT-DK-ALB-002"]
+            },
+            "description": "ETA + risk for én konkret enhed. 404 hvis utilstrækkelige data."
+          },
+          "response": []
+        },
+        {
+          "name": "Park-summary (totaler pr. park)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/monitoring/park-summary",
+              "host": ["{{baseUrl}}"],
+              "path": ["monitoring", "park-summary"]
+            },
+            "description": "Total effekt, gns. vind, max temp pr. park — seneste tick."
+          },
+          "response": []
+        },
+        {
+          "name": "Simulator-status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/monitoring/simulator",
+              "host": ["{{baseUrl}}"],
+              "path": ["monitoring", "simulator"]
+            },
+            "description": "Status på live-tikker: ticks, rows_inserted, last_tick_at, evt. fejl."
+          },
+          "response": []
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8000",
+      "type": "string",
+      "description": "API base URL. Skift til deployed URL når relevant."
+    }
+  ]
+}
