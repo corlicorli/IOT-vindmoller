@@ -220,11 +220,16 @@ async def test_stats_endpoint_empty_database(client):
     assert body["devices"] == 0
     assert body["active_alerts"]["total"] == 0
     assert body["predictions"]["high_risk"] == 0
-    assert body["events"]["total"] == 0
+    assert body["sensor_readings"]["total"] == 0
+    assert body["anomaly_events"]["total"] == 0
 
 
 async def test_stats_endpoint_with_seed_and_alert(client, seeded):
-    """Stats skal afspejle seed + en POSTet anomaly-måling."""
+    """Stats skal afspejle seed + en POSTet anomaly-måling.
+
+    Vigtigt: sensor_readings tæller ALLE målinger (lag 1).
+    anomaly_events tæller kun threshold-overskridelser (lag 2 — delmængde).
+    """
     # Trigger en anomaly via API
     await client.post(
         "/metrics",
@@ -247,9 +252,12 @@ async def test_stats_endpoint_with_seed_and_alert(client, seeded):
     assert body["active_alerts"]["critical"] == 1
     assert body["active_alerts"]["warning"] == 0
     assert body["active_alerts"]["total"] == 1
-    # En event blev persisteret af POST
-    assert body["events"]["total"] == 1
-    assert body["events"]["last_24h"] == 1
+    # 1 reading (lag 1 — Sensor Value Received)
+    assert body["sensor_readings"]["total"] == 1
+    assert body["sensor_readings"]["last_24h"] == 1
+    # 1 anomaly event (lag 2 — Anomaly Detected, delmængde af reading)
+    assert body["anomaly_events"]["total"] == 1
+    assert body["anomaly_events"]["last_24h"] == 1
 
 
 async def test_predictions_list_sorts_high_risk_first(client, seeded):

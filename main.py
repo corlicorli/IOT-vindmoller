@@ -325,9 +325,17 @@ async def stats() -> dict:
     medium_risk = sum(1 for p in preds if p["risk"] == "MEDIUM")
     low_risk = sum(1 for p in preds if p["risk"] == "LOW")
 
-    total_events = await db.alerts().count_documents({})
     cutoff_24h = datetime.now(timezone.utc) - timedelta(days=1)
-    events_24h = await db.alerts().count_documents(
+
+    # Lag 1: alle sensor-målinger (Sensor Value Received events)
+    total_readings = await db.metrics().count_documents({})
+    readings_24h = await db.metrics().count_documents(
+        {"timestamp": {"$gte": cutoff_24h}}
+    )
+
+    # Lag 2: kun anomalier (Anomaly Detected events) — delmængde af readings
+    total_anomalies = await db.alerts().count_documents({})
+    anomalies_24h = await db.alerts().count_documents(
         {"timestamp": {"$gte": cutoff_24h}}
     )
 
@@ -345,9 +353,13 @@ async def stats() -> dict:
             "low_risk": low_risk,
             "total_analyzed": len(preds),
         },
-        "events": {
-            "total": total_events,
-            "last_24h": events_24h,
+        "sensor_readings": {
+            "total": total_readings,
+            "last_24h": readings_24h,
+        },
+        "anomaly_events": {
+            "total": total_anomalies,
+            "last_24h": anomalies_24h,
         },
     }
 

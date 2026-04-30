@@ -254,7 +254,7 @@
     {
       "id": 7,
       "type": "stat",
-      "title": "Anomaly events sidste 24t",
+      "title": "Sensor readings sidste 24t (lag 1)",
       "gridPos": {"h": 4, "w": 6, "x": 12, "y": 4},
       "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "windfarm-api"},
       "targets": [
@@ -266,8 +266,45 @@
           "url": "/monitoring/stats",
           "url_options": {"method": "GET", "data": ""},
           "format": "table",
-          "root_selector": "events",
-          "columns": [{"selector": "last_24h", "text": "events 24h", "type": "number"}],
+          "root_selector": "sensor_readings",
+          "columns": [{"selector": "last_24h", "text": "readings 24h", "type": "number"}],
+          "parser": "backend"
+        }
+      ],
+      "options": {
+        "reduceOptions": {"values": false, "calcs": ["lastNotNull"], "fields": ""},
+        "orientation": "auto",
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "fixed", "fixedColor": "blue"},
+          "unit": "short",
+          "decimals": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 8,
+      "type": "stat",
+      "title": "Anomaly events sidste 24t (lag 2)",
+      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 4},
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "windfarm-api"},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "windfarm-api"},
+          "type": "json",
+          "source": "url",
+          "url": "/monitoring/stats",
+          "url_options": {"method": "GET", "data": ""},
+          "format": "table",
+          "root_selector": "anomaly_events",
+          "columns": [{"selector": "last_24h", "text": "anomalies 24h", "type": "number"}],
           "parser": "backend"
         }
       ],
@@ -282,43 +319,6 @@
       "fieldConfig": {
         "defaults": {
           "color": {"mode": "fixed", "fixedColor": "purple"},
-          "unit": "short",
-          "decimals": 0
-        },
-        "overrides": []
-      }
-    },
-    {
-      "id": 8,
-      "type": "stat",
-      "title": "Total events (event-log)",
-      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 4},
-      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "windfarm-api"},
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "windfarm-api"},
-          "type": "json",
-          "source": "url",
-          "url": "/monitoring/stats",
-          "url_options": {"method": "GET", "data": ""},
-          "format": "table",
-          "root_selector": "events",
-          "columns": [{"selector": "total", "text": "Total", "type": "number"}],
-          "parser": "backend"
-        }
-      ],
-      "options": {
-        "reduceOptions": {"values": false, "calcs": ["lastNotNull"], "fields": ""},
-        "orientation": "auto",
-        "textMode": "value",
-        "colorMode": "value",
-        "graphMode": "none",
-        "justifyMode": "center"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {"mode": "fixed", "fixedColor": "blue"},
           "unit": "short",
           "decimals": 0
         },
