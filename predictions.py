@@ -5,16 +5,21 @@ Lag 3 i PdM-arkitekturen:
     Lag 2: Anomaly detection  (alerts.py — threshold-regel her og nu)
     Lag 3: Trend-analyse      (denne fil — lineær regression på temperaturhistorik)
 
-For hver mølle: fit en linje gennem de sidste N dages temperaturmålinger og
-ekstrapolér til hvornår threshold (70°C) bliver overskredet hvis trenden fortsætter.
-Risk-niveau kombinerer trend-styrke med afvigelse fra møllens egen baseline.
+For hver mølle: aggregér de sidste N dages målinger til daglige gennemsnit
+og fit en linje gennem disse. Daglig aggregering filtrerer wind/load-drevet
+støj fra og isolerer den faktiske gearkasse-degradering.
+
+Ekstrapolér derefter til hvornår threshold (70°C) bliver overskredet hvis
+trenden fortsætter. Risk-niveau kombinerer trend-styrke med afvigelse fra
+møllens egen baseline.
 
 Pure-Python implementation — ingen tunge ML-dependencies.
 """
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
+from collections import defaultdict
+from datetime import date, datetime, timedelta, timezone
 
 import db
 from alerts import ALERT_TEMP_THRESHOLD_C
@@ -23,6 +28,12 @@ logger = logging.getLogger(__name__)
 
 PREDICTION_LOOKBACK_DAYS = 7
 MIN_DATAPOINTS = 30  # mindst så mange målinger før vi tør forudsige
+MIN_DAYS_FOR_TREND = 3  # mindst så mange dage med data før slope er meningsfuld
+
+# Filtrér til høj-load målinger: ved >40% effekt domineres gearkasse-temp
+# af baseline + drift, ikke vind-variationer. Det gør trend-signalet
+# adskilleligt fra støj. Lav-effekt målinger kasseres.
+HIGH_LOAD_KW_THRESHOLD = 1000.0
 
 
 # --- Pure-Python statistik (uden numpy) -------------------------------------
@@ -67,20 +78,23 @@ def classify_risk(
 ) -> str:
     """Risk-niveau baseret på nuværende afvigelse + trend.
 
+    Tærsklerne er kalibreret til daglig-aggregeret slope. Med daglig aggregering
+    er typisk støj-niveau ~0.2°C/dag, så signal skal være > 0.25 for at tælle.
+
     Regler (i prioriteret rækkefølge):
-      - Allerede over threshold              → HIGH
-      - Stærk opadgående trend + outlier     → HIGH
-      - Moderat opadgående trend ELLER outlier → MEDIUM
-      - Ellers                               → LOW
+      - Allerede over threshold                         → HIGH
+      - Stærk opadgående trend (>0.6°C/dag) + outlier   → HIGH
+      - Mild opadgående trend (>0.25°C/dag) ELLER outlier → MEDIUM
+      - Ellers                                          → LOW
     """
     if current_temp > ALERT_TEMP_THRESHOLD_C:
         return "HIGH"
     z_score = (
         (current_temp - baseline_mean) / baseline_std if baseline_std > 0 else 0.0
     )
-    if slope_c_per_day > 1.0 and z_score > 1.5:
+    if slope_c_per_day > 0.6 and z_score > 1.5:
         return "HIGH"
-    if slope_c_per_day > 0.5 or z_score > 1.5:
+    if slope_c_per_day > 0.25 or z_score > 1.5:
         return "MEDIUM"
     return "LOW"
 
@@ -98,7 +112,13 @@ async def predict_for_device(device_id: str) -> dict | None:
         db.metrics()
         .find(
             {"device_id": device_id, "timestamp": {"$gte": cutoff}},
-            projection={"timestamp": 1, "gearbox_temp_c": 1, "park_id": 1, "_id": 0},
+            projection={
+                "timestamp": 1,
+                "gearbox_temp_c": 1,
+                "park_id": 1,
+                "power_output_kw": 1,
+                "_id": 0,
+            },
         )
         .sort("timestamp", 1)
     )
@@ -107,14 +127,35 @@ async def predict_for_device(device_id: str) -> dict | None:
         return None
 
     park_id = docs[0]["park_id"]
-    t0 = docs[0]["timestamp"]
-    xs = [(d["timestamp"] - t0).total_seconds() / 86400.0 for d in docs]
-    ys = [d["gearbox_temp_c"] for d in docs]
+    raw_temps = [d["gearbox_temp_c"] for d in docs]
 
-    slope_c_per_day, _intercept = linear_regression(xs, ys)
-    baseline_mean = sum(ys) / len(ys)
-    baseline_std = stddev(ys)
-    current_temp = ys[-1]
+    # Filtrer til høj-load målinger til slope-beregning (men ikke baseline,
+    # som skal afspejle alle driftstilstande). Hvis enheden aldrig kører høj
+    # last (fx low_power scenario), falder vi tilbage til alle målinger.
+    high_load_docs = [
+        d for d in docs if d.get("power_output_kw", 0) >= HIGH_LOAD_KW_THRESHOLD
+    ]
+    trend_docs = high_load_docs if len(high_load_docs) >= MIN_DATAPOINTS else docs
+
+    # Aggregér til daglige gennemsnit — filtrerer kortvarige wind-fluktuationer
+    # fra så vi kan se den ægte gearkasse-degradering henover dage.
+    daily_buckets: dict[date, list[float]] = defaultdict(list)
+    for d in trend_docs:
+        day = d["timestamp"].date()
+        daily_buckets[day].append(d["gearbox_temp_c"])
+
+    daily_pairs = sorted(daily_buckets.items())
+    if len(daily_pairs) < MIN_DAYS_FOR_TREND:
+        slope_c_per_day = 0.0  # for få dage til en meningsfuld trend
+    else:
+        first_day = daily_pairs[0][0]
+        xs_days = [(day - first_day).days for day, _ in daily_pairs]
+        ys_daily = [sum(temps) / len(temps) for _, temps in daily_pairs]
+        slope_c_per_day, _intercept = linear_regression(xs_days, ys_daily)
+
+    baseline_mean = sum(raw_temps) / len(raw_temps)
+    baseline_std = stddev(raw_temps)
+    current_temp = raw_temps[-1]
 
     eta_breach: datetime | None = None
     days_until_breach: float | None = None

@@ -25,19 +25,36 @@ class Scenario:
 
 
 SCENARIOS = [
-    # Sundeste enheder — ingen drift
+    # 0: sundt — ingen drift, ingen offset
     Scenario("healthy",        0.0,  1.00, OK_ERROR, 0.02),
-    # "overheat_drift" simulerer accelerende gearkasse-fejl: +2°C pr. dag
-    Scenario("overheat_drift", 4.0,  0.95, "E12",    0.04, temp_drift_per_day=2.0),
+    # 1: accelerende gearkasse-fejl: +1.0°C/dag (svær, men realistisk failure-mode)
+    Scenario("overheat_drift", 4.0,  0.95, "E12",    0.04, temp_drift_per_day=1.0),
+    # 2: lav effekt — generator-issue, ingen temp-drift
     Scenario("low_power",     -2.0,  0.55, "W04",    0.06),
-    # "aging" simulerer langsom slidtage: +0.7°C pr. dag
-    Scenario("aging",          6.0,  0.90, "W11",    0.08, temp_drift_per_day=0.7),
+    # 3: aldring — langsom slidtage +0.3°C/dag
+    Scenario("aging",          5.0,  0.90, "W11",    0.08, temp_drift_per_day=0.3),
+    # 4: flaky sensor — støj, ingen ægte temp-issue
     Scenario("flaky_sensor",   2.0,  1.00, "E07",    0.03),
 ]
 
 
+# Realistisk distribution: ~67% sunde, kun få i aktive failure-modes.
+# (En park hvor 44% er i alarm-tilstand ville være lukket ned i virkeligheden.)
+# Index i denne liste = scenarie-index i SCENARIOS.
+DEVICE_SCENARIO_MAPPING = [
+    0, 0, 1, 0, 0, 3, 2, 0, 4, 0,  # 10 første: 1 overheat, 1 aging, 1 low_power, 1 flaky, 6 healthy
+    0, 3, 0, 0, 1, 0, 2, 0,         # næste 8: 1 overheat, 1 aging, 1 low_power, 5 healthy
+]
+# Resultat for 18 møller: 11 healthy, 2 overheat_drift, 2 aging, 2 low_power, 1 flaky_sensor
+
+
 def scenario_for(idx: int) -> Scenario:
-    return SCENARIOS[idx % len(SCENARIOS)]
+    """Map et device-index til dets driftscenarie.
+
+    Brugt af både seed.py og simulator.py så hver mølle har samme scenarie
+    konsistent over tid — kritisk for at predictions kan se trends.
+    """
+    return SCENARIOS[DEVICE_SCENARIO_MAPPING[idx % len(DEVICE_SCENARIO_MAPPING)]]
 
 
 def power_curve(wind_ms: float) -> float:
@@ -61,6 +78,10 @@ class TickState:
     temp_drift: float
 
 
+WIND_MEAN_MS = 9.0           # langsigtet middelvind
+WIND_REVERSION_RATE = 0.05   # styrken af mean-reversion (Ornstein-Uhlenbeck)
+
+
 def next_tick(
     state: TickState,
     scenario: Scenario,
@@ -72,8 +93,11 @@ def next_tick(
 
     cumulative_days: hvor længe enheden har været i drift i dette scenarie.
     Driver lineær temperatur-drift (°C/dag × dage) — fundamentet for PdM-trend-analyse.
+
+    Vind: mean-reverting random walk (Ornstein-Uhlenbeck) — pull tilbage mod
+    WIND_MEAN_MS forhindrer langsigtet drift som ville forurene trend-signal.
     """
-    state.wind += rng.gauss(0, 0.6)
+    state.wind += rng.gauss(0, 0.6) - WIND_REVERSION_RATE * (state.wind - WIND_MEAN_MS)
     state.wind = max(0.0, min(22.0, state.wind))
     state.wind += math.sin((hour - 3) / 24 * 2 * math.pi) * 0.05
 

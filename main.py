@@ -352,6 +352,12 @@ async def stats() -> dict:
             "medium_risk": medium_risk,
             "low_risk": low_risk,
             "total_analyzed": len(preds),
+            # Pivoteret form til Grafanas pie chart (label/value rækker)
+            "by_risk": [
+                {"risk": "HIGH", "count": high_risk},
+                {"risk": "MEDIUM", "count": medium_risk},
+                {"risk": "LOW", "count": low_risk},
+            ],
         },
         "sensor_readings": {
             "total": total_readings,

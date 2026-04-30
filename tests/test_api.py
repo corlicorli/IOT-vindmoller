@@ -279,25 +279,25 @@ async def test_predictions_list_sorts_high_risk_first(client, seeded):
     )
 
     now = datetime.now(timezone.utc).replace(microsecond=0)
-    # Mølle 1: stærkt stigende
+    # Mølle 1: stærkt stigende — 40 punkter spredt over 5 dage med ~2°C/dag drift
     rising = [
         {
             "device_id": "IOT-DK-ALB-001",
             "park_id": "PARK-ALB",
-            "timestamp": now - timedelta(hours=5 - i / 8),
+            "timestamp": now - timedelta(days=5 - i / 8),
             "wind_speed_ms": 8.0,
             "power_output_kw": 1500.0,
             "rotor_rpm": 12.0,
-            "gearbox_temp_c": 50.0 + i * 0.3,  # ~7°C på 5 dage = ~1.4°C/dag
+            "gearbox_temp_c": 50.0 + i * 0.3,
         }
         for i in range(40)
     ]
-    # Mølle 2: stabil
+    # Mølle 2: stabil — samme tidsspand men konstant temperatur
     stable = [
         {
             "device_id": "IOT-DK-ALB-002",
             "park_id": "PARK-ALB",
-            "timestamp": now - timedelta(hours=5 - i / 8),
+            "timestamp": now - timedelta(days=5 - i / 8),
             "wind_speed_ms": 8.0,
             "power_output_kw": 1500.0,
             "rotor_rpm": 12.0,

@@ -179,9 +179,9 @@
     },
     {
       "id": 5,
-      "type": "stat",
-      "title": "MEDIUM-risk",
-      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 4},
+      "type": "piechart",
+      "title": "Risk-fordeling (PdM lag 3)",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
       "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "windfarm-api"},
       "targets": [
         {
@@ -192,61 +192,35 @@
           "url": "/monitoring/stats",
           "url_options": {"method": "GET", "data": ""},
           "format": "table",
-          "root_selector": "predictions",
-          "columns": [{"selector": "medium_risk", "text": "MEDIUM risk", "type": "number"}],
+          "root_selector": "predictions.by_risk",
+          "columns": [
+            {"selector": "risk", "text": "Risk", "type": "string"},
+            {"selector": "count", "text": "Count", "type": "number"}
+          ],
           "parser": "backend"
         }
       ],
       "options": {
-        "reduceOptions": {"values": false, "calcs": ["lastNotNull"], "fields": ""},
-        "orientation": "auto",
-        "textMode": "value",
-        "colorMode": "value",
-        "graphMode": "none",
-        "justifyMode": "center"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {"mode": "fixed", "fixedColor": "yellow"},
-          "unit": "short",
-          "decimals": 0
+        "pieType": "donut",
+        "tooltip": {"mode": "single", "sort": "none"},
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "values": ["value", "percent"],
+          "showLegend": true
         },
-        "overrides": []
-      }
-    },
-    {
-      "id": 6,
-      "type": "stat",
-      "title": "LOW-risk (stabile)",
-      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 4},
-      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "windfarm-api"},
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "windfarm-api"},
-          "type": "json",
-          "source": "url",
-          "url": "/monitoring/stats",
-          "url_options": {"method": "GET", "data": ""},
-          "format": "table",
-          "root_selector": "predictions",
-          "columns": [{"selector": "low_risk", "text": "LOW risk", "type": "number"}],
-          "parser": "backend"
-        }
-      ],
-      "options": {
-        "reduceOptions": {"values": false, "calcs": ["lastNotNull"], "fields": ""},
-        "orientation": "auto",
-        "textMode": "value",
-        "colorMode": "value",
-        "graphMode": "none",
-        "justifyMode": "center"
+        "displayLabels": ["name", "value"],
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}
       },
       "fieldConfig": {
         "defaults": {
-          "color": {"mode": "fixed", "fixedColor": "green"},
-          "unit": "short",
-          "decimals": 0
+          "color": {"mode": "palette-classic"},
+          "mappings": [
+            {"type": "value", "options": {"HIGH": {"color": "red", "index": 0}}},
+            {"type": "value", "options": {"MEDIUM": {"color": "orange", "index": 1}}},
+            {"type": "value", "options": {"LOW": {"color": "green", "index": 2}}}
+          ],
+          "unit": "short"
         },
         "overrides": []
       }
@@ -255,7 +229,7 @@
       "id": 7,
       "type": "stat",
       "title": "Sensor readings sidste 24t (lag 1)",
-      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 4},
+      "gridPos": {"h": 4, "w": 12, "x": 12, "y": 4},
       "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "windfarm-api"},
       "targets": [
         {
@@ -292,7 +266,7 @@
       "id": 8,
       "type": "stat",
       "title": "Anomaly events sidste 24t (lag 2)",
-      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 4},
+      "gridPos": {"h": 4, "w": 12, "x": 12, "y": 8},
       "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "windfarm-api"},
       "targets": [
         {
@@ -329,7 +303,7 @@
       "id": 9,
       "type": "table",
       "title": "Park-summary (live)",
-      "gridPos": {"h": 7, "w": 24, "x": 0, "y": 8},
+      "gridPos": {"h": 7, "w": 24, "x": 0, "y": 12},
       "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "windfarm-api"},
       "targets": [
         {
@@ -386,7 +360,7 @@
       "id": 10,
       "type": "table",
       "title": "PdM lag 3 — Trend-baserede forudsigelser pr. mølle",
-      "gridPos": {"h": 11, "w": 24, "x": 0, "y": 15},
+      "gridPos": {"h": 11, "w": 24, "x": 0, "y": 19},
       "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "windfarm-api"},
       "targets": [
         {
@@ -459,7 +433,7 @@
       "id": 11,
       "type": "table",
       "title": "Anomaly Detected — event-log (lag 2)",
-      "gridPos": {"h": 11, "w": 24, "x": 0, "y": 26},
+      "gridPos": {"h": 11, "w": 24, "x": 0, "y": 30},
       "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "windfarm-api"},
       "targets": [
         {
